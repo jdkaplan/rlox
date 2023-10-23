@@ -7,6 +7,14 @@
 
 typedef enum {
   OP_CONSTANT,
+
+  OP_NEG,
+
+  OP_ADD,
+  OP_SUB,
+  OP_MUL,
+  OP_DIV,
+
   OP_RETURN,
 } Opcode;
 
@@ -23,6 +31,6 @@ void chunk_init(Chunk *chunk);
 void chunk_free(Chunk *chunk);
 void chunk_write(Chunk *chunk, uint8_t byte, int line);
 
-int chunk_add_constant(Chunk *chunk, Value value);
+uint8_t chunk_add_constant(Chunk *chunk, Value value);
 
 #endif

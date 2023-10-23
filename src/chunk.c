@@ -22,7 +22,14 @@ void chunk_write(Chunk *chunk, uint8_t byte, int line) {
   VEC_APPEND(chunk->lines, line);
 }
 
-int chunk_add_constant(Chunk *chunk, Value value) {
+uint8_t chunk_add_constant(Chunk *chunk, Value value) {
+  unsigned int idx = VEC_LEN(chunk->constants);
+  if (idx == 255) {
+    printf("too many constants");
+    exit(2);
+  }
+
   VEC_APPEND(chunk->constants, value);
-  return VEC_LEN(chunk->constants) - 1;
+
+  return (uint8_t)(idx);
 }

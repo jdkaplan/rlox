@@ -2,7 +2,15 @@
 
 #include "memory.h"
 
+void collect_garbage(void) {
+  // TODO
+}
+
 void *reallocate(void *pointer, size_t old, size_t new) {
+  if (old > new) {
+    collect_garbage();
+  }
+
   if (new == 0) {
     free(pointer);
     return NULL;

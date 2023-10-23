@@ -8,8 +8,31 @@ help: ## List targets in this Makefile
 		| sort --dictionary-order \
 		| column --separator $$'\t' --table --table-wrap 2 --output-separator '    '
 
+ifeq ($(DEBUG),)
+CDEBUG =
+else
+CDEBUG = -DDEBUG_TRACE_EXECUTION
+endif
+
 CC     = gcc
-CFLAGS =
+CFLAGS = $(CDEBUG) \
+		 -Wall \
+		 -Wextra \
+		 \
+		 -Waggregate-return \
+		 -Wcast-align \
+		 -Wcast-qual \
+		 -Wconversion \
+		 -Wfloat-equal \
+		 -Wpointer-arith \
+		 -Wshadow \
+		 -Wstrict-overflow=4 \
+		 -Wstrict-prototypes \
+		 -Wswitch-default \
+		 -Wswitch-enum \
+		 -Wundef \
+		 -Wunreachable-code \
+		 -Wwrite-strings
 
 RM    = rm -f
 MKDIR = mkdir -p
@@ -26,7 +49,7 @@ run: build
 
 .PHONY: watch
 watch:
-	until fd . | entr -cdp $(MAKE) run ; do echo 'Edit a file or press Space to build and run.'; done
+	until fd . | entr -cdp $(MAKE) run ; do echo 'Edit a file or press Space to start.'; done
 
 .PHONY: clox
 clox: $(SOURCE_FILES)

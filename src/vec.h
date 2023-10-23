@@ -5,8 +5,8 @@
 
 #define VEC(item)                                                              \
   struct {                                                                     \
-    int len;                                                                   \
-    int cap;                                                                   \
+    unsigned int len;                                                          \
+    unsigned int cap;                                                          \
     item *items;                                                               \
   }
 
@@ -26,7 +26,7 @@
 #define VEC_APPEND(vec, item)                                                  \
   do {                                                                         \
     if (vec.len + 1 >= vec.cap) {                                              \
-      int old_cap = vec.cap;                                                   \
+      unsigned int old_cap = vec.cap;                                          \
       vec.cap = GROW_CAP(old_cap);                                             \
       vec.items = GROW_ARRAY(typeof(item), vec.items, old_cap, vec.cap);       \
     }                                                                          \
