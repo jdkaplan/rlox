@@ -23,7 +23,7 @@ typedef enum {
   INTERPRET_RUNTIME_ERROR
 } InterpretResult;
 
-InterpretResult vm_interpret(Vm *vm, Chunk *chunk);
+InterpretResult vm_interpret(Vm *vm, const char *source);
 void vm_push(Vm *vm, Value value);
 Value vm_pop(Vm *vm);
 

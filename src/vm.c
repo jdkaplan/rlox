@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "compiler.h"
 #include "debug.h"
 #include "vm.h"
 
@@ -96,8 +97,7 @@ InterpretResult vm_run(Vm *vm) {
 #undef READ_BYTE
 }
 
-InterpretResult vm_interpret(Vm *vm, Chunk *chunk) {
-  vm->chunk = chunk;
-  vm->ip = vm->chunk->code.items;
-  return vm_run(vm);
+InterpretResult vm_interpret(Vm *vm, const char *source) {
+  compile(source);
+  return INTERPRET_OK;
 }

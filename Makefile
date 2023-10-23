@@ -19,7 +19,6 @@ CFLAGS = $(CDEBUG) \
 		 -Wall \
 		 -Wextra \
 		 \
-		 -Waggregate-return \
 		 -Wcast-align \
 		 -Wcast-qual \
 		 -Wconversion \
@@ -45,7 +44,7 @@ build: clox
 
 .PHONY: run
 run: build
-	$(BUILD_DIR)/clox
+	$(BUILD_DIR)/clox $(RUN_ARGS)
 
 .PHONY: watch
 watch:
