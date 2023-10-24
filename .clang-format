@@ -1,0 +1,3 @@
+BasedOnStyle: LLVM
+AlignArrayOfStructures: Left
+AlignConsecutiveMacros: Consecutive

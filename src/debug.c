@@ -39,20 +39,30 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
   case OP_CONSTANT:
     return constant_instruction("OP_CONSTANT", chunk, offset);
 
-  case OP_NEG:
-    return simple_instruction("OP_NEG", offset);
+#define SIMPLE(op)                                                             \
+  case op:                                                                     \
+    return simple_instruction(#op, offset);
 
-  case OP_ADD:
-    return simple_instruction("OP_ADD", offset);
-  case OP_SUB:
-    return simple_instruction("OP_SUB", offset);
-  case OP_MUL:
-    return simple_instruction("OP_MUL", offset);
-  case OP_DIV:
-    return simple_instruction("OP_DIV", offset);
+    SIMPLE(OP_NIL)
+    SIMPLE(OP_TRUE)
+    SIMPLE(OP_FALSE)
 
-  case OP_RETURN:
-    return simple_instruction("OP_RETURN", offset);
+    SIMPLE(OP_EQUAL)
+    SIMPLE(OP_GREATER)
+    SIMPLE(OP_LESS)
+
+    SIMPLE(OP_NOT)
+
+    SIMPLE(OP_NEG)
+
+    SIMPLE(OP_ADD)
+    SIMPLE(OP_SUB)
+    SIMPLE(OP_MUL)
+    SIMPLE(OP_DIV)
+
+    SIMPLE(OP_RETURN)
+
+#undef SIMPLE
 
   default:
     printf("Unknown opcode %d\n", instruction);
