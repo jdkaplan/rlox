@@ -40,7 +40,7 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     return constant_instruction("OP_CONSTANT", chunk, offset);
 
   case OP_NEG:
-    return simple_instruction("OP_NEGATE", offset);
+    return simple_instruction("OP_NEG", offset);
 
   case OP_ADD:
     return simple_instruction("OP_ADD", offset);

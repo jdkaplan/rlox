@@ -8,7 +8,7 @@
 #include "debug.h"
 #include "vm.h"
 
-void repl() {
+void repl(void) {
   Vm vm;
   vm_init(&vm);
 

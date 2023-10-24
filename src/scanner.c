@@ -29,7 +29,7 @@ Token make_error(Scanner *scanner, const char *msg) {
   return token;
 }
 
-char advance(Scanner *scanner) {
+char scanner_advance(Scanner *scanner) {
   scanner->current++;
   return scanner->current[-1];
 }
@@ -65,18 +65,18 @@ void skip_ignored(Scanner *scanner) {
     case ' ':
     case '\r':
     case '\t':
-      advance(scanner);
+      scanner_advance(scanner);
       break;
     case '\n':
       scanner->line++;
-      advance(scanner);
+      scanner_advance(scanner);
       break;
 
       // Comments
     case '/':
       if (peek_next(scanner) == '/') {
         while (peek(scanner) != '\n' && !at_eof(scanner)) {
-          advance(scanner);
+          scanner_advance(scanner);
         }
       } else {
         return;
@@ -94,7 +94,7 @@ Token scan_string(Scanner *scanner) {
     if (peek(scanner) == '\n') {
       scanner->line++;
     }
-    advance(scanner);
+    scanner_advance(scanner);
   }
 
   if (at_eof(scanner)) {
@@ -102,7 +102,7 @@ Token scan_string(Scanner *scanner) {
   }
 
   // Consume the '"' found by peek()
-  advance(scanner);
+  scanner_advance(scanner);
   return make_token(scanner, TOKEN_STRING);
 }
 
@@ -110,17 +110,17 @@ bool is_digit(const char c) { return '0' <= c && c <= '9'; }
 
 Token scan_number(Scanner *scanner) {
   while (is_digit(peek(scanner))) {
-    advance(scanner);
+    scanner_advance(scanner);
   }
 
   // Only consume the dot if there are also more digits afterward. Otherwise, it
   // indicates a method call rather than a decimal number.
   if (peek(scanner) == '.' && is_digit(peek_next(scanner))) {
-    advance(scanner); // '.'
+    scanner_advance(scanner); // '.'
 
     // Everything after the dot
     while (is_digit(peek(scanner))) {
-      advance(scanner);
+      scanner_advance(scanner);
     }
   }
 
@@ -163,7 +163,7 @@ TokenType keyword_or_identifier(Scanner *scanner) {
 
 Token scan_identifier(Scanner *scanner) {
   while (is_alpha(peek(scanner)) || is_digit(peek(scanner))) {
-    advance(scanner);
+    scanner_advance(scanner);
   }
 
   TokenType type = keyword_or_identifier(scanner);
@@ -179,7 +179,7 @@ Token scanner_next(Scanner *scanner) {
     return make_token(scanner, TOKEN_EOF);
   }
 
-  char c = advance(scanner);
+  char c = scanner_advance(scanner);
 
   if (is_alpha(c)) {
     return scan_identifier(scanner);

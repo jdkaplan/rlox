@@ -98,6 +98,19 @@ InterpretResult vm_run(Vm *vm) {
 }
 
 InterpretResult vm_interpret(Vm *vm, const char *source) {
-  compile(source);
-  return INTERPRET_OK;
+  Chunk chunk;
+  chunk_init(&chunk);
+
+  if (!compile(source, &chunk)) {
+    chunk_free(&chunk);
+    return INTERPRET_COMPILE_ERROR;
+  }
+
+  vm->chunk = &chunk;
+  vm->ip = vm->chunk->code.items;
+
+  InterpretResult result = vm_run(vm);
+
+  chunk_free(&chunk);
+  return result;
 }

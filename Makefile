@@ -11,7 +11,7 @@ help: ## List targets in this Makefile
 ifeq ($(DEBUG),)
 CDEBUG =
 else
-CDEBUG = -DDEBUG_TRACE_EXECUTION
+CDEBUG = -DDEBUG_TRACE_EXECUTION -DDEBUG_PRINT_CODE
 endif
 
 CC     = gcc
@@ -27,8 +27,6 @@ CFLAGS = $(CDEBUG) \
 		 -Wshadow \
 		 -Wstrict-overflow=4 \
 		 -Wstrict-prototypes \
-		 -Wswitch-default \
-		 -Wswitch-enum \
 		 -Wundef \
 		 -Wunreachable-code \
 		 -Wwrite-strings

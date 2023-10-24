@@ -24,7 +24,7 @@ void chunk_write(Chunk *chunk, uint8_t byte, int line) {
 
 uint8_t chunk_add_constant(Chunk *chunk, Value value) {
   unsigned int idx = VEC_LEN(chunk->constants);
-  if (idx == 255) {
+  if (idx == UINT8_MAX) {
     printf("too many constants");
     exit(2);
   }
