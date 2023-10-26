@@ -1,16 +1,21 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "compiler.h"
 #include "debug.h"
+#include "object.h"
 #include "vm.h"
 
 void vm_reset_stack(Vm *vm) { vm->stack_top = vm->stack; }
 
-void vm_init(Vm *vm) { vm_reset_stack(vm); }
+void vm_init(Vm *vm) {
+  vm_reset_stack(vm);
+  vm->objects = NULL;
+}
 
-void vm_free(Vm *vm) {}
+void vm_free(Vm *vm) { free_objects(vm->objects); }
 
 void vm_push(Vm *vm, Value value) {
   *vm->stack_top = value;
@@ -25,6 +30,17 @@ Value vm_pop(Vm *vm) {
 Value vm_peek(Vm *vm, int offset) { return vm->stack_top[-1 - offset]; }
 
 bool is_falsey(Value v) { return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v)); }
+
+ObjString *concatenate(Obj **objs, ObjString *a, ObjString *b) {
+  size_t length = a->length + b->length;
+  char *chars = ALLOCATE(char, length + 1);
+
+  memcpy(chars, a->chars, a->length);
+  memcpy(chars + a->length, b->chars, b->length);
+  chars[length] = '\0';
+
+  return str_take(objs, chars, length);
+}
 
 void runtime_error(Vm *vm, const char *format, ...) {
   va_list args;
@@ -124,7 +140,19 @@ InterpretResult vm_run(Vm *vm) {
     }
 
     case OP_ADD: {
-      BINARY_OP(vm, V_NUMBER, +);
+      if (IS_STRING(vm_peek(vm, 0)) && IS_STRING(vm_peek(vm, 1))) {
+        ObjString *b = AS_STRING(vm_pop(vm));
+        ObjString *a = AS_STRING(vm_pop(vm));
+        ObjString *result = concatenate(&vm->objects, a, b);
+        vm_push(vm, V_OBJ(result));
+      } else if (IS_NUMBER(vm_peek(vm, 0)) && IS_NUMBER(vm_peek(vm, 1))) {
+        double b = AS_NUMBER(vm_pop(vm));
+        double a = AS_NUMBER(vm_pop(vm));
+        vm_push(vm, V_NUMBER(a + b));
+      } else {
+        runtime_error(vm, "operands must be two numbers or two strings");
+        return INTERPRET_RUNTIME_ERROR;
+      }
       break;
     }
     case OP_SUB: {

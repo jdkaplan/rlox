@@ -6,17 +6,17 @@ void collect_garbage(void) {
   // TODO
 }
 
-void *reallocate(void *pointer, size_t old, size_t new) {
+void *reallocate(void *ptr, size_t old, size_t new) {
   if (old > new) {
     collect_garbage();
   }
 
   if (new == 0) {
-    free(pointer);
+    free(ptr);
     return NULL;
   }
 
-  void *result = realloc(pointer, new);
+  void *result = realloc(ptr, new);
   if (result == NULL) {
     exit(1);
   }

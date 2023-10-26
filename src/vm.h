@@ -12,6 +12,8 @@ typedef struct {
 
   Value stack[STACK_MAX];
   Value *stack_top;
+
+  Obj *objects;
 } Vm;
 
 void vm_init(Vm *vm);

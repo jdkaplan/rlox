@@ -34,7 +34,7 @@
     vec.len++;                                                                 \
   } while (0)
 
-#define VEC_LEN(vec) vec.len
+#define VEC_LEN(vec)      vec.len
 #define VEC_GET(vec, idx) vec.items[idx]
 
 #endif

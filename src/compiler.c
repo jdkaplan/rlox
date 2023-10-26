@@ -3,6 +3,7 @@
 
 #include "chunk.h"
 #include "compiler.h"
+#include "object.h"
 #include "scanner.h"
 
 #ifdef DEBUG_PRINT_CODE
@@ -14,11 +15,10 @@ typedef struct {
   Token previous;
 
   Chunk *chunk;
+  Scanner *scanner;
 
   bool had_error;
   bool panicking;
-
-  Scanner *scanner;
 } Parser;
 
 void error_at(Parser *parser, Token *token, const char *msg) {
@@ -79,8 +79,9 @@ void emit_byte(Parser *parser, uint8_t byte) {
 }
 
 void emit_bytes(Parser *parser, uint8_t b1, uint8_t b2) {
-  chunk_write(current_chunk(parser), b1, parser->previous.line);
-  chunk_write(current_chunk(parser), b2, parser->previous.line);
+  Chunk *chunk = current_chunk(parser);
+  chunk_write(chunk, b1, parser->previous.line);
+  chunk_write(chunk, b2, parser->previous.line);
 }
 
 void emit_return(Parser *parser) { emit_byte(parser, OP_RETURN); }
@@ -224,8 +225,19 @@ void group(Parser *parser) {
 }
 
 void number(Parser *parser) {
-  double value = strtod(parser->previous.start, NULL);
-  emit_constant(parser, V_NUMBER(value));
+  double f = strtod(parser->previous.start, NULL);
+  emit_constant(parser, V_NUMBER(f));
+}
+
+void string(Parser *parser) {
+  // Drop the leading quote '"'
+  const char *start = parser->previous.start + 1;
+  // Drop the trailing quote '"' and one more because pointer math.
+  size_t length = (size_t)(parser->previous.length - 2);
+
+  ObjString *str = str_clone(start, length);
+  // TODO: This is where handling escape sequence would go.
+  emit_constant(parser, V_OBJ(str));
 }
 
 void unary(Parser *parser) {
@@ -271,7 +283,7 @@ ParseRule rules[] = {
   [TOKEN_LESS]          = {NULL,    binary, PREC_COMPARISON},
   [TOKEN_LESS_EQUAL]    = {NULL,    binary, PREC_COMPARISON},
   [TOKEN_IDENTIFIER]    = {NULL,    NULL,   PREC_NONE      },
-  [TOKEN_STRING]        = {NULL,    NULL,   PREC_NONE      },
+  [TOKEN_STRING]        = {string,  NULL,   PREC_NONE      },
   [TOKEN_NUMBER]        = {number,  NULL,   PREC_NONE      },
   [TOKEN_AND]           = {NULL,    NULL,   PREC_NONE      },
   [TOKEN_CLASS]         = {NULL,    NULL,   PREC_NONE      },
