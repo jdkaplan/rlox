@@ -45,12 +45,9 @@ bool value_eq(Value a, Value b) {
     return AS_NUMBER(a) == AS_NUMBER(b);
 #pragma GCC diagnostic pop
 
-  case T_OBJ: {
-    ObjString *a_str = AS_STRING(a);
-    ObjString *b_str = AS_STRING(b);
-    return a_str->length == b_str->length &&
-           memcmp(a_str->chars, b_str->chars, (size_t)(a_str->length)) == 0;
-  }
+  case T_OBJ:
+    // By interning all strings, pointer equality works for strings too.
+    return AS_OBJ(a) == AS_OBJ(b);
 
   default:
     return false; // Unreachable

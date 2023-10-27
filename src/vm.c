@@ -12,10 +12,14 @@ void vm_reset_stack(Vm *vm) { vm->stack_top = vm->stack; }
 
 void vm_init(Vm *vm) {
   vm_reset_stack(vm);
+  table_init(&vm->strings);
   vm->objects = NULL;
 }
 
-void vm_free(Vm *vm) { free_objects(vm->objects); }
+void vm_free(Vm *vm) {
+  table_free(&vm->strings);
+  free_objects(vm->objects);
+}
 
 void vm_push(Vm *vm, Value value) {
   *vm->stack_top = value;
@@ -31,7 +35,7 @@ Value vm_peek(Vm *vm, int offset) { return vm->stack_top[-1 - offset]; }
 
 bool is_falsey(Value v) { return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v)); }
 
-ObjString *concatenate(Obj **objs, ObjString *a, ObjString *b) {
+ObjString *concatenate(Obj **objs, Table *strings, ObjString *a, ObjString *b) {
   size_t length = a->length + b->length;
   char *chars = ALLOCATE(char, length + 1);
 
@@ -39,7 +43,7 @@ ObjString *concatenate(Obj **objs, ObjString *a, ObjString *b) {
   memcpy(chars + a->length, b->chars, b->length);
   chars[length] = '\0';
 
-  return str_take(objs, chars, length);
+  return str_take(objs, strings, chars, length);
 }
 
 void runtime_error(Vm *vm, const char *format, ...) {
@@ -143,7 +147,7 @@ InterpretResult vm_run(Vm *vm) {
       if (IS_STRING(vm_peek(vm, 0)) && IS_STRING(vm_peek(vm, 1))) {
         ObjString *b = AS_STRING(vm_pop(vm));
         ObjString *a = AS_STRING(vm_pop(vm));
-        ObjString *result = concatenate(&vm->objects, a, b);
+        ObjString *result = concatenate(&vm->objects, &vm->strings, a, b);
         vm_push(vm, V_OBJ(result));
       } else if (IS_NUMBER(vm_peek(vm, 0)) && IS_NUMBER(vm_peek(vm, 1))) {
         double b = AS_NUMBER(vm_pop(vm));
@@ -190,7 +194,7 @@ InterpretResult vm_interpret(Vm *vm, const char *source) {
   Chunk chunk;
   chunk_init(&chunk);
 
-  if (!compile(source, &chunk)) {
+  if (!compile(source, &chunk, &vm->objects, &vm->strings)) {
     chunk_free(&chunk);
     return INTERPRET_COMPILE_ERROR;
   }

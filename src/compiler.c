@@ -19,6 +19,11 @@ typedef struct {
 
   bool had_error;
   bool panicking;
+
+  // Borrowed from VM
+  Obj **objects;
+  Table *strings;
+  // end borrow
 } Parser;
 
 void error_at(Parser *parser, Token *token, const char *msg) {
@@ -235,7 +240,7 @@ void string(Parser *parser) {
   // Drop the trailing quote '"' and one more because pointer math.
   size_t length = (size_t)(parser->previous.length - 2);
 
-  ObjString *str = str_clone(start, length);
+  ObjString *str = str_clone(parser->objects, parser->strings, start, length);
   // TODO: This is where handling escape sequence would go.
   emit_constant(parser, V_OBJ(str));
 }
@@ -308,7 +313,7 @@ ParseRule rules[] = {
 
 ParseRule *get_rule(TokenType type) { return &rules[type]; }
 
-bool compile(const char *source, Chunk *chunk) {
+bool compile(const char *source, Chunk *chunk, Obj **objects, Table *strings) {
   Scanner scanner;
   scanner_init(&scanner, source);
 
@@ -317,6 +322,8 @@ bool compile(const char *source, Chunk *chunk) {
   parser.chunk = chunk;
   parser.had_error = false;
   parser.panicking = false;
+  parser.objects = objects;
+  parser.strings = strings;
 
   parser_advance(&parser);
   expression(&parser);
