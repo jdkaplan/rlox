@@ -29,7 +29,7 @@ static Token make_error(Scanner *scanner, const char *msg) {
   return token;
 }
 
-static char scanner_advance(Scanner *scanner) {
+static char advance(Scanner *scanner) {
   scanner->current++;
   return scanner->current[-1];
 }
@@ -43,7 +43,7 @@ static char peek_next(Scanner *scanner) {
   return scanner->current[1];
 }
 
-static bool scanner_match(Scanner *scanner, const char expected) {
+static bool match(Scanner *scanner, const char expected) {
   if (at_eof(scanner)) {
     return false;
   }
@@ -65,18 +65,18 @@ static void skip_ignored(Scanner *scanner) {
     case ' ':
     case '\r':
     case '\t':
-      scanner_advance(scanner);
+      advance(scanner);
       break;
     case '\n':
       scanner->line++;
-      scanner_advance(scanner);
+      advance(scanner);
       break;
 
       // Comments
     case '/':
       if (peek_next(scanner) == '/') {
         while (peek(scanner) != '\n' && !at_eof(scanner)) {
-          scanner_advance(scanner);
+          advance(scanner);
         }
       } else {
         return;
@@ -94,7 +94,7 @@ static Token scan_string(Scanner *scanner) {
     if (peek(scanner) == '\n') {
       scanner->line++;
     }
-    scanner_advance(scanner);
+    advance(scanner);
   }
 
   if (at_eof(scanner)) {
@@ -102,7 +102,7 @@ static Token scan_string(Scanner *scanner) {
   }
 
   // Consume the '"' found by peek()
-  scanner_advance(scanner);
+  advance(scanner);
   return make_token(scanner, TOKEN_STRING);
 }
 
@@ -110,17 +110,17 @@ static bool is_digit(const char c) { return '0' <= c && c <= '9'; }
 
 static Token scan_number(Scanner *scanner) {
   while (is_digit(peek(scanner))) {
-    scanner_advance(scanner);
+    advance(scanner);
   }
 
   // Only consume the dot if there are also more digits afterward. Otherwise, it
   // indicates a method call rather than a decimal number.
   if (peek(scanner) == '.' && is_digit(peek_next(scanner))) {
-    scanner_advance(scanner); // '.'
+    advance(scanner); // '.'
 
     // Everything after the dot
     while (is_digit(peek(scanner))) {
-      scanner_advance(scanner);
+      advance(scanner);
     }
   }
 
@@ -163,7 +163,7 @@ static TokenType keyword_or_identifier(Scanner *scanner) {
 
 static Token scan_identifier(Scanner *scanner) {
   while (is_alpha(peek(scanner)) || is_digit(peek(scanner))) {
-    scanner_advance(scanner);
+    advance(scanner);
   }
 
   TokenType type = keyword_or_identifier(scanner);
@@ -179,7 +179,7 @@ Token scanner_next(Scanner *scanner) {
     return make_token(scanner, TOKEN_EOF);
   }
 
-  char c = scanner_advance(scanner);
+  char c = advance(scanner);
 
   if (is_alpha(c)) {
     return scan_identifier(scanner);
@@ -215,23 +215,19 @@ Token scanner_next(Scanner *scanner) {
 
   // One or two characters, 1 lookahead
   case '!': {
-    TokenType type =
-        scanner_match(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG;
+    TokenType type = match(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG;
     return make_token(scanner, type);
   }
   case '=': {
-    TokenType type =
-        scanner_match(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL;
+    TokenType type = match(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL;
     return make_token(scanner, type);
   }
   case '<': {
-    TokenType type =
-        scanner_match(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS;
+    TokenType type = match(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS;
     return make_token(scanner, type);
   }
   case '>': {
-    TokenType type =
-        scanner_match(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER;
+    TokenType type = match(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER;
     return make_token(scanner, type);
   }
 

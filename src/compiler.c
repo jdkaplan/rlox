@@ -41,7 +41,7 @@ static void error_at_current(Parser *parser, const char *msg) {
   error_at(parser, &parser->current, msg);
 }
 
-static void parser_advance(Parser *parser) {
+static void advance(Parser *parser) {
   parser->previous = parser->current;
   for (;;) {
     parser->current = scanner_next(parser->scanner);
@@ -55,7 +55,7 @@ static void parser_advance(Parser *parser) {
 
 static void consume(Parser *parser, TokenType type, const char *msg) {
   if (parser->current.type == type) {
-    parser_advance(parser);
+    advance(parser);
     return;
   }
 
@@ -66,11 +66,11 @@ static bool check(Parser *parser, TokenType type) {
   return parser->current.type == type;
 }
 
-static bool parser_match(Parser *parser, TokenType type) {
+static bool match(Parser *parser, TokenType type) {
   if (!check(parser, type)) {
     return false;
   }
-  parser_advance(parser);
+  advance(parser);
   return true;
 }
 
@@ -176,7 +176,7 @@ static void declaration(Parser *parser);
 static ParseRule *get_rule(TokenType type);
 
 static void parse_precedence(Parser *parser, Precedence precedence) {
-  parser_advance(parser);
+  advance(parser);
   ParseFn prefix = get_rule(parser->previous.type)->prefix;
   if (prefix == NULL) {
     error(parser, "expect expression");
@@ -187,13 +187,13 @@ static void parse_precedence(Parser *parser, Precedence precedence) {
   prefix(parser, can_assign);
 
   while (precedence <= get_rule(parser->current.type)->precedence) {
-    parser_advance(parser);
+    advance(parser);
 
     ParseFn infix = get_rule(parser->previous.type)->infix;
     infix(parser, can_assign);
   }
 
-  if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
+  if (can_assign && match(parser, TOKEN_EQUAL)) {
     error(parser, "invalid assignment target");
   }
 }
@@ -373,7 +373,7 @@ static void named_variable(Parser *parser, Token name, bool can_assign) {
     op_set = OP_SET_LOCAL;
   }
 
-  if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
+  if (can_assign && match(parser, TOKEN_EQUAL)) {
     expression(parser);
     emit_bytes(parser, op_set, slot);
   } else {
@@ -419,7 +419,7 @@ static void block(Parser *parser) {
 static void decl_var(Parser *parser) {
   uint8_t global = parse_variable(parser, "expect variable name");
 
-  if (parser_match(parser, TOKEN_EQUAL)) {
+  if (match(parser, TOKEN_EQUAL)) {
     expression(parser);
   } else {
     emit_byte(parser, OP_NIL);
@@ -463,12 +463,12 @@ static void synchronize(Parser *parser) {
     default:;
     }
 
-    parser_advance(parser);
+    advance(parser);
   }
 }
 
 static void declaration(Parser *parser) {
-  if (parser_match(parser, TOKEN_VAR)) {
+  if (match(parser, TOKEN_VAR)) {
     decl_var(parser);
   } else {
     statement(parser);
@@ -480,9 +480,9 @@ static void declaration(Parser *parser) {
 }
 
 static void statement(Parser *parser) {
-  if (parser_match(parser, TOKEN_PRINT)) {
+  if (match(parser, TOKEN_PRINT)) {
     stmt_print(parser);
-  } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+  } else if (match(parser, TOKEN_LEFT_BRACE)) {
     scope_begin(parser);
     block(parser);
     scope_end(parser);
@@ -554,9 +554,9 @@ bool compile(const char *source, Chunk *chunk, Obj **objects, Table *strings) {
   parser.objects = objects;
   parser.strings = strings;
 
-  parser_advance(&parser);
+  advance(&parser);
 
-  while (!parser_match(&parser, TOKEN_EOF)) {
+  while (!match(&parser, TOKEN_EOF)) {
     declaration(&parser);
   }
   end_compilation(&parser);
