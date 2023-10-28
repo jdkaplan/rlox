@@ -24,6 +24,13 @@ unsigned int constant_instruction(const char *name, Chunk *chunk,
   return offset + 2;
 }
 
+static unsigned int byte_instruction(const char *name, Chunk *chunk,
+                                     unsigned int offset) {
+  uint8_t slot = VEC_GET(chunk->code, offset + 1);
+  printf("%-16s %4d\n", name, slot);
+  return offset + 2;
+}
+
 unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
   printf("%04d ", offset);
 
@@ -47,6 +54,15 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     CONSTANT(OP_SET_GLOBAL)
 
 #undef CONSTANT
+
+#define BYTE(op)                                                               \
+  case op:                                                                     \
+    return byte_instruction(#op, chunk, offset);
+
+    BYTE(OP_GET_LOCAL)
+    BYTE(OP_SET_LOCAL)
+
+#undef BYTE
 
 #define SIMPLE(op)                                                             \
   case op:                                                                     \

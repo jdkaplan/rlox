@@ -7,4 +7,6 @@
 
 #define UNUSED(x) UNUSED_##x __attribute__((__unused__))
 
+#define UINT8_COUNT (UINT8_MAX + 1)
+
 #endif

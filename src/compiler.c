@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "chunk.h"
 #include "compiler.h"
@@ -9,22 +10,6 @@
 #ifdef DEBUG_PRINT_CODE
 #include "debug.h"
 #endif
-
-typedef struct {
-  Token current;
-  Token previous;
-
-  Chunk *chunk;
-  Scanner *scanner;
-
-  bool had_error;
-  bool panicking;
-
-  // Borrowed from VM
-  Obj **objects;
-  Table *strings;
-  // end borrow
-} Parser;
 
 void error_at(Parser *parser, Token *token, const char *msg) {
   // Avoid emitting errors while panicking. This flag will be cleared by error
@@ -121,7 +106,44 @@ void end_compilation(Parser *parser) {
 #endif
 }
 
-// Grammar
+void compiler_init(Compiler *compiler) {
+  compiler->local_count = 0;
+  compiler->scope_depth = 0;
+}
+
+void scope_begin(Parser *parser) {
+  Compiler *compiler = parser->compiler;
+  compiler->scope_depth++;
+}
+
+void scope_end(Parser *parser) {
+  Compiler *compiler = parser->compiler;
+  compiler->scope_depth--;
+
+  // TODO: OP_POPN is a good optimization here.
+  while (compiler->local_count > 0 &&
+         compiler->locals[compiler->local_count - 1].depth >
+             compiler->scope_depth) {
+    emit_byte(parser, OP_POP);
+    compiler->local_count--;
+  }
+}
+
+void add_local(Parser *parser, Token name) {
+  if (parser->compiler->local_count == UINT8_COUNT) {
+    error(parser, "too many local variables in function");
+    return;
+  }
+
+  Local *local = &parser->compiler->locals[parser->compiler->local_count++];
+  local->name = name;
+  local->depth = -1; // declared: reserved without value
+}
+
+void mark_initialized(Compiler *compiler) {
+  compiler->locals[compiler->local_count - 1].depth = compiler->scope_depth;
+  // defined: value available at a certain depth
+}
 
 typedef enum {
   PREC_NONE,
@@ -144,6 +166,8 @@ typedef struct {
   ParseFn infix;
   Precedence precedence;
 } ParseRule;
+
+// Grammar
 
 void expression(Parser *parser);
 void parse_precedence(Parser *parser, Precedence precedence);
@@ -180,12 +204,65 @@ uint8_t identifier_constant(Parser *parser, Token *name) {
   return make_constant(parser, V_OBJ(string));
 }
 
+static bool identifiers_equal(Token *a, Token *b) {
+  if (a->length != b->length) {
+    return false;
+  }
+  return memcmp(a->start, b->start, (size_t)(a->length)) == 0;
+}
+
+static int resolve_local(Parser *parser, Token *name) {
+  Compiler *compiler = parser->compiler;
+
+  for (int i = compiler->local_count - 1; i >= 0; i--) {
+    Local *local = &compiler->locals[i];
+    if (identifiers_equal(name, &local->name)) {
+      if (local->depth == -1) {
+        error(parser, "can't read local variable in its own initializer");
+      }
+      return i;
+    }
+  }
+  return -1;
+}
+
+void declare_variable(Parser *parser) {
+  if (parser->compiler->scope_depth == 0) {
+    // Globals are late-bound and don't have a location on the stack.
+    return;
+  }
+
+  Token *name = &parser->previous;
+  for (int i = parser->compiler->local_count - 1; i >= 0; i--) {
+    Local *local = &parser->compiler->locals[i];
+    if (local->depth != -1 && local->depth < parser->compiler->scope_depth) {
+      break;
+    }
+
+    if (identifiers_equal(name, &local->name)) {
+      error(parser, "variable already declared in this scope");
+    }
+  }
+  add_local(parser, *name);
+}
+
 uint8_t parse_variable(Parser *parser, const char *msg) {
   consume(parser, TOKEN_IDENTIFIER, msg);
+
+  declare_variable(parser);
+  if (parser->compiler->scope_depth > 0) {
+    return 0;
+  }
+
   return identifier_constant(parser, &parser->previous);
 }
 
 void define_variable(Parser *parser, uint8_t global) {
+  if (parser->compiler->scope_depth > 0) {
+    mark_initialized(parser->compiler);
+    // No runtime code to execute! The value is already in the stack slot.
+    return;
+  }
   emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
@@ -283,13 +360,24 @@ void string(Parser *parser, bool UNUSED(can_assign)) {
 }
 
 void named_variable(Parser *parser, Token name, bool can_assign) {
-  uint8_t arg = identifier_constant(parser, &name);
+  Opcode op_get, op_set;
+  uint8_t slot;
+  int arg = resolve_local(parser, &name);
+  if (arg == -1) {
+    slot = identifier_constant(parser, &name);
+    op_get = OP_GET_GLOBAL;
+    op_set = OP_SET_GLOBAL;
+  } else {
+    slot = (uint8_t)(arg);
+    op_get = OP_GET_LOCAL;
+    op_set = OP_SET_LOCAL;
+  }
 
   if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
     expression(parser);
-    emit_bytes(parser, OP_SET_GLOBAL, arg);
+    emit_bytes(parser, op_set, slot);
   } else {
-    emit_bytes(parser, OP_GET_GLOBAL, arg);
+    emit_bytes(parser, op_get, slot);
   }
 }
 
@@ -317,6 +405,14 @@ void unary(Parser *parser, bool UNUSED(can_assign)) {
 }
 
 void expression(Parser *parser) { parse_precedence(parser, PREC_ASSIGNMENT); }
+
+void block(Parser *parser) {
+  while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+    declaration(parser);
+  }
+
+  consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after block");
+}
 
 void decl_var(Parser *parser) {
   uint8_t global = parse_variable(parser, "expect variable name");
@@ -384,6 +480,10 @@ void declaration(Parser *parser) {
 void statement(Parser *parser) {
   if (parser_match(parser, TOKEN_PRINT)) {
     stmt_print(parser);
+  } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+    scope_begin(parser);
+    block(parser);
+    scope_end(parser);
   } else {
     stmt_expr(parser);
   }
@@ -440,8 +540,12 @@ bool compile(const char *source, Chunk *chunk, Obj **objects, Table *strings) {
   Scanner scanner;
   scanner_init(&scanner, source);
 
+  Compiler compiler;
+  compiler_init(&compiler);
+
   Parser parser;
   parser.scanner = &scanner;
+  parser.compiler = &compiler;
   parser.chunk = chunk;
   parser.had_error = false;
   parser.panicking = false;
