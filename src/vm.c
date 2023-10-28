@@ -8,7 +8,7 @@
 #include "object.h"
 #include "vm.h"
 
-void vm_reset_stack(Vm *vm) { vm->stack_top = vm->stack; }
+static void vm_reset_stack(Vm *vm) { vm->stack_top = vm->stack; }
 
 void vm_init(Vm *vm) {
   vm_reset_stack(vm);
@@ -33,11 +33,14 @@ Value vm_pop(Vm *vm) {
   return *vm->stack_top;
 }
 
-Value vm_peek(Vm *vm, int offset) { return vm->stack_top[-1 - offset]; }
+static Value vm_peek(Vm *vm, int offset) { return vm->stack_top[-1 - offset]; }
 
-bool is_falsey(Value v) { return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v)); }
+static bool is_falsey(Value v) {
+  return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v));
+}
 
-ObjString *concatenate(Obj **objs, Table *strings, ObjString *a, ObjString *b) {
+static ObjString *concatenate(Obj **objs, Table *strings, ObjString *a,
+                              ObjString *b) {
   size_t length = a->length + b->length;
   char *chars = ALLOCATE(char, length + 1);
 
@@ -48,7 +51,7 @@ ObjString *concatenate(Obj **objs, Table *strings, ObjString *a, ObjString *b) {
   return str_take(objs, strings, chars, length);
 }
 
-void runtime_error(Vm *vm, const char *format, ...) {
+static void runtime_error(Vm *vm, const char *format, ...) {
   va_list args;
   va_start(args, format);
   vfprintf(stderr, format, args);
@@ -62,7 +65,7 @@ void runtime_error(Vm *vm, const char *format, ...) {
   vm_reset_stack(vm);
 }
 
-InterpretResult vm_run(Vm *vm) {
+static InterpretResult vm_run(Vm *vm) {
 #define READ_BYTE()     ((Opcode)(*vm->ip++))
 #define READ_CONSTANT() (VEC_GET(vm->chunk->constants, READ_BYTE()))
 #define READ_STRING()   (AS_STRING(READ_CONSTANT()))

@@ -9,9 +9,9 @@ void scanner_init(Scanner *scanner, const char *source) {
   scanner->line = 1;
 }
 
-bool at_eof(Scanner *scanner) { return *scanner->current == '\0'; }
+static bool at_eof(Scanner *scanner) { return *scanner->current == '\0'; }
 
-Token make_token(Scanner *scanner, TokenType type) {
+static Token make_token(Scanner *scanner, TokenType type) {
   Token token;
   token.type = type;
   token.start = scanner->start;
@@ -20,7 +20,7 @@ Token make_token(Scanner *scanner, TokenType type) {
   return token;
 }
 
-Token make_error(Scanner *scanner, const char *msg) {
+static Token make_error(Scanner *scanner, const char *msg) {
   Token token;
   token.type = TOKEN_ERROR;
   token.start = msg;
@@ -29,21 +29,21 @@ Token make_error(Scanner *scanner, const char *msg) {
   return token;
 }
 
-char scanner_advance(Scanner *scanner) {
+static char scanner_advance(Scanner *scanner) {
   scanner->current++;
   return scanner->current[-1];
 }
 
-char peek(Scanner *scanner) { return *scanner->current; }
+static char peek(Scanner *scanner) { return *scanner->current; }
 
-char peek_next(Scanner *scanner) {
+static char peek_next(Scanner *scanner) {
   if (at_eof(scanner)) {
     return '\0';
   }
   return scanner->current[1];
 }
 
-bool scanner_match(Scanner *scanner, const char expected) {
+static bool scanner_match(Scanner *scanner, const char expected) {
   if (at_eof(scanner)) {
     return false;
   }
@@ -56,7 +56,7 @@ bool scanner_match(Scanner *scanner, const char expected) {
   return true;
 }
 
-void skip_ignored(Scanner *scanner) {
+static void skip_ignored(Scanner *scanner) {
   for (;;) {
     char c = peek(scanner);
     switch (c) {
@@ -89,7 +89,7 @@ void skip_ignored(Scanner *scanner) {
   }
 }
 
-Token scan_string(Scanner *scanner) {
+static Token scan_string(Scanner *scanner) {
   while (peek(scanner) != '"' && !at_eof(scanner)) {
     if (peek(scanner) == '\n') {
       scanner->line++;
@@ -106,9 +106,9 @@ Token scan_string(Scanner *scanner) {
   return make_token(scanner, TOKEN_STRING);
 }
 
-bool is_digit(const char c) { return '0' <= c && c <= '9'; }
+static bool is_digit(const char c) { return '0' <= c && c <= '9'; }
 
-Token scan_number(Scanner *scanner) {
+static Token scan_number(Scanner *scanner) {
   while (is_digit(peek(scanner))) {
     scanner_advance(scanner);
   }
@@ -127,11 +127,11 @@ Token scan_number(Scanner *scanner) {
   return make_token(scanner, TOKEN_NUMBER);
 }
 
-bool is_alpha(const char c) {
+static bool is_alpha(const char c) {
   return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_';
 }
 
-TokenType keyword_or_identifier(Scanner *scanner) {
+static TokenType keyword_or_identifier(Scanner *scanner) {
   // The chars tracked by the scanner _are not_ a null-terminated string. Be
   // careful with lengths and comparisons!
   const char *id = scanner->start;
@@ -161,7 +161,7 @@ TokenType keyword_or_identifier(Scanner *scanner) {
   return TOKEN_IDENTIFIER;
 }
 
-Token scan_identifier(Scanner *scanner) {
+static Token scan_identifier(Scanner *scanner) {
   while (is_alpha(peek(scanner)) || is_digit(peek(scanner))) {
     scanner_advance(scanner);
   }

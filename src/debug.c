@@ -10,13 +10,13 @@ void disassemble_chunk(Chunk *chunk, const char *name) {
   }
 }
 
-unsigned int simple_instruction(const char *name, unsigned int offset) {
+static unsigned int simple_instruction(const char *name, unsigned int offset) {
   printf("%s\n", name);
   return offset + 1;
 }
 
-unsigned int constant_instruction(const char *name, Chunk *chunk,
-                                  unsigned int offset) {
+static unsigned int constant_instruction(const char *name, Chunk *chunk,
+                                         unsigned int offset) {
   uint8_t constant = VEC_GET(chunk->code, offset + 1);
   printf("%-16s %4d '", name, constant);
   print_value(VEC_GET(chunk->constants, constant));

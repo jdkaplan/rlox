@@ -11,7 +11,7 @@
 #include "debug.h"
 #endif
 
-void error_at(Parser *parser, Token *token, const char *msg) {
+static void error_at(Parser *parser, Token *token, const char *msg) {
   // Avoid emitting errors while panicking. This flag will be cleared by error
   // recovery.
   if (parser->panicking) {
@@ -33,15 +33,15 @@ void error_at(Parser *parser, Token *token, const char *msg) {
   parser->had_error = true;
 }
 
-void error(Parser *parser, const char *msg) {
+static void error(Parser *parser, const char *msg) {
   error_at(parser, &parser->previous, msg);
 }
 
-void error_at_current(Parser *parser, const char *msg) {
+static void error_at_current(Parser *parser, const char *msg) {
   error_at(parser, &parser->current, msg);
 }
 
-void parser_advance(Parser *parser) {
+static void parser_advance(Parser *parser) {
   parser->previous = parser->current;
   for (;;) {
     parser->current = scanner_next(parser->scanner);
@@ -53,7 +53,7 @@ void parser_advance(Parser *parser) {
   }
 }
 
-void consume(Parser *parser, TokenType type, const char *msg) {
+static void consume(Parser *parser, TokenType type, const char *msg) {
   if (parser->current.type == type) {
     parser_advance(parser);
     return;
@@ -62,11 +62,11 @@ void consume(Parser *parser, TokenType type, const char *msg) {
   error_at_current(parser, msg);
 }
 
-bool check(Parser *parser, TokenType type) {
+static bool check(Parser *parser, TokenType type) {
   return parser->current.type == type;
 }
 
-bool parser_match(Parser *parser, TokenType type) {
+static bool parser_match(Parser *parser, TokenType type) {
   if (!check(parser, type)) {
     return false;
   }
@@ -74,29 +74,29 @@ bool parser_match(Parser *parser, TokenType type) {
   return true;
 }
 
-Chunk *current_chunk(Parser *parser) { return parser->chunk; }
+static Chunk *current_chunk(Parser *parser) { return parser->chunk; }
 
-void emit_byte(Parser *parser, uint8_t byte) {
+static void emit_byte(Parser *parser, uint8_t byte) {
   chunk_write(current_chunk(parser), byte, parser->previous.line);
 }
 
-void emit_bytes(Parser *parser, uint8_t b1, uint8_t b2) {
+static void emit_bytes(Parser *parser, uint8_t b1, uint8_t b2) {
   Chunk *chunk = current_chunk(parser);
   chunk_write(chunk, b1, parser->previous.line);
   chunk_write(chunk, b2, parser->previous.line);
 }
 
-void emit_return(Parser *parser) { emit_byte(parser, OP_RETURN); }
+static void emit_return(Parser *parser) { emit_byte(parser, OP_RETURN); }
 
-uint8_t make_constant(Parser *parser, Value value) {
+static uint8_t make_constant(Parser *parser, Value value) {
   return chunk_add_constant(current_chunk(parser), value);
 }
 
-void emit_constant(Parser *parser, Value value) {
+static void emit_constant(Parser *parser, Value value) {
   emit_bytes(parser, OP_CONSTANT, make_constant(parser, value));
 }
 
-void end_compilation(Parser *parser) {
+static void end_compilation(Parser *parser) {
   emit_return(parser);
 
 #ifdef DEBUG_PRINT_CODE
@@ -106,17 +106,17 @@ void end_compilation(Parser *parser) {
 #endif
 }
 
-void compiler_init(Compiler *compiler) {
+static void compiler_init(Compiler *compiler) {
   compiler->local_count = 0;
   compiler->scope_depth = 0;
 }
 
-void scope_begin(Parser *parser) {
+static void scope_begin(Parser *parser) {
   Compiler *compiler = parser->compiler;
   compiler->scope_depth++;
 }
 
-void scope_end(Parser *parser) {
+static void scope_end(Parser *parser) {
   Compiler *compiler = parser->compiler;
   compiler->scope_depth--;
 
@@ -129,7 +129,7 @@ void scope_end(Parser *parser) {
   }
 }
 
-void add_local(Parser *parser, Token name) {
+static void add_local(Parser *parser, Token name) {
   if (parser->compiler->local_count == UINT8_COUNT) {
     error(parser, "too many local variables in function");
     return;
@@ -140,7 +140,7 @@ void add_local(Parser *parser, Token name) {
   local->depth = -1; // declared: reserved without value
 }
 
-void mark_initialized(Compiler *compiler) {
+static void mark_initialized(Compiler *compiler) {
   compiler->locals[compiler->local_count - 1].depth = compiler->scope_depth;
   // defined: value available at a certain depth
 }
@@ -169,13 +169,13 @@ typedef struct {
 
 // Grammar
 
-void expression(Parser *parser);
-void parse_precedence(Parser *parser, Precedence precedence);
-void statement(Parser *parser);
-void declaration(Parser *parser);
-ParseRule *get_rule(TokenType type);
+static void expression(Parser *parser);
+static void parse_precedence(Parser *parser, Precedence precedence);
+static void statement(Parser *parser);
+static void declaration(Parser *parser);
+static ParseRule *get_rule(TokenType type);
 
-void parse_precedence(Parser *parser, Precedence precedence) {
+static void parse_precedence(Parser *parser, Precedence precedence) {
   parser_advance(parser);
   ParseFn prefix = get_rule(parser->previous.type)->prefix;
   if (prefix == NULL) {
@@ -198,7 +198,7 @@ void parse_precedence(Parser *parser, Precedence precedence) {
   }
 }
 
-uint8_t identifier_constant(Parser *parser, Token *name) {
+static uint8_t identifier_constant(Parser *parser, Token *name) {
   ObjString *string = str_clone(parser->objects, parser->strings, name->start,
                                 (size_t)(name->length));
   return make_constant(parser, V_OBJ(string));
@@ -226,7 +226,7 @@ static int resolve_local(Parser *parser, Token *name) {
   return -1;
 }
 
-void declare_variable(Parser *parser) {
+static void declare_variable(Parser *parser) {
   if (parser->compiler->scope_depth == 0) {
     // Globals are late-bound and don't have a location on the stack.
     return;
@@ -246,7 +246,7 @@ void declare_variable(Parser *parser) {
   add_local(parser, *name);
 }
 
-uint8_t parse_variable(Parser *parser, const char *msg) {
+static uint8_t parse_variable(Parser *parser, const char *msg) {
   consume(parser, TOKEN_IDENTIFIER, msg);
 
   declare_variable(parser);
@@ -257,7 +257,7 @@ uint8_t parse_variable(Parser *parser, const char *msg) {
   return identifier_constant(parser, &parser->previous);
 }
 
-void define_variable(Parser *parser, uint8_t global) {
+static void define_variable(Parser *parser, uint8_t global) {
   if (parser->compiler->scope_depth > 0) {
     mark_initialized(parser->compiler);
     // No runtime code to execute! The value is already in the stack slot.
@@ -266,7 +266,7 @@ void define_variable(Parser *parser, uint8_t global) {
   emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
-void binary(Parser *parser, bool UNUSED(can_assign)) {
+static void binary(Parser *parser, bool UNUSED(can_assign)) {
   TokenType op = parser->previous.type;
   ParseRule *rule = get_rule(op);
   parse_precedence(parser, rule->precedence + 1);
@@ -319,7 +319,7 @@ void binary(Parser *parser, bool UNUSED(can_assign)) {
   }
 }
 
-void literal(Parser *parser, bool UNUSED(can_assign)) {
+static void literal(Parser *parser, bool UNUSED(can_assign)) {
   switch (parser->previous.type) {
   case TOKEN_FALSE: {
     emit_byte(parser, OP_FALSE);
@@ -338,17 +338,17 @@ void literal(Parser *parser, bool UNUSED(can_assign)) {
   }
 }
 
-void group(Parser *parser, bool UNUSED(can_assign)) {
+static void group(Parser *parser, bool UNUSED(can_assign)) {
   expression(parser);
   consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after expression");
 }
 
-void number(Parser *parser, bool UNUSED(can_assign)) {
+static void number(Parser *parser, bool UNUSED(can_assign)) {
   double f = strtod(parser->previous.start, NULL);
   emit_constant(parser, V_NUMBER(f));
 }
 
-void string(Parser *parser, bool UNUSED(can_assign)) {
+static void string(Parser *parser, bool UNUSED(can_assign)) {
   // Drop the leading quote '"'
   const char *start = parser->previous.start + 1;
   // Drop the trailing quote '"' and one more because pointer math.
@@ -359,7 +359,7 @@ void string(Parser *parser, bool UNUSED(can_assign)) {
   emit_constant(parser, V_OBJ(str));
 }
 
-void named_variable(Parser *parser, Token name, bool can_assign) {
+static void named_variable(Parser *parser, Token name, bool can_assign) {
   Opcode op_get, op_set;
   uint8_t slot;
   int arg = resolve_local(parser, &name);
@@ -381,11 +381,11 @@ void named_variable(Parser *parser, Token name, bool can_assign) {
   }
 }
 
-void variable(Parser *parser, bool can_assign) {
+static void variable(Parser *parser, bool can_assign) {
   named_variable(parser, parser->previous, can_assign);
 }
 
-void unary(Parser *parser, bool UNUSED(can_assign)) {
+static void unary(Parser *parser, bool UNUSED(can_assign)) {
   TokenType op = parser->previous.type;
 
   parse_precedence(parser, PREC_UNARY);
@@ -404,9 +404,11 @@ void unary(Parser *parser, bool UNUSED(can_assign)) {
   }
 }
 
-void expression(Parser *parser) { parse_precedence(parser, PREC_ASSIGNMENT); }
+static void expression(Parser *parser) {
+  parse_precedence(parser, PREC_ASSIGNMENT);
+}
 
-void block(Parser *parser) {
+static void block(Parser *parser) {
   while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
     declaration(parser);
   }
@@ -414,7 +416,7 @@ void block(Parser *parser) {
   consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after block");
 }
 
-void decl_var(Parser *parser) {
+static void decl_var(Parser *parser) {
   uint8_t global = parse_variable(parser, "expect variable name");
 
   if (parser_match(parser, TOKEN_EQUAL)) {
@@ -427,19 +429,19 @@ void decl_var(Parser *parser) {
   define_variable(parser, global);
 }
 
-void stmt_expr(Parser *parser) {
+static void stmt_expr(Parser *parser) {
   expression(parser);
   consume(parser, TOKEN_SEMICOLON, "expect ';' after expression");
   emit_byte(parser, OP_POP);
 }
 
-void stmt_print(Parser *parser) {
+static void stmt_print(Parser *parser) {
   expression(parser);
   consume(parser, TOKEN_SEMICOLON, "expect ';' after value");
   emit_byte(parser, OP_PRINT);
 }
 
-void synchronize(Parser *parser) {
+static void synchronize(Parser *parser) {
   parser->panicking = false;
 
   while (parser->current.type != TOKEN_EOF) {
@@ -465,7 +467,7 @@ void synchronize(Parser *parser) {
   }
 }
 
-void declaration(Parser *parser) {
+static void declaration(Parser *parser) {
   if (parser_match(parser, TOKEN_VAR)) {
     decl_var(parser);
   } else {
@@ -477,7 +479,7 @@ void declaration(Parser *parser) {
   }
 }
 
-void statement(Parser *parser) {
+static void statement(Parser *parser) {
   if (parser_match(parser, TOKEN_PRINT)) {
     stmt_print(parser);
   } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
@@ -534,7 +536,7 @@ ParseRule rules[] = {
   // clang-format on
 };
 
-ParseRule *get_rule(TokenType type) { return &rules[type]; }
+static ParseRule *get_rule(TokenType type) { return &rules[type]; }
 
 bool compile(const char *source, Chunk *chunk, Obj **objects, Table *strings) {
   Scanner scanner;

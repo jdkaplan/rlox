@@ -17,7 +17,7 @@ void table_free(Table *table) {
   table_init(table);
 }
 
-Entry *find(Entry *entries, uint32_t cap, ObjString *key) {
+static Entry *find(Entry *entries, uint32_t cap, ObjString *key) {
   uint32_t idx = key->hash % cap;
   Entry *tombstone = NULL;
   for (;;) {
