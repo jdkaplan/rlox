@@ -36,8 +36,17 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
 
   Opcode instruction = (Opcode)VEC_GET(chunk->code, offset);
   switch (instruction) {
-  case OP_CONSTANT:
-    return constant_instruction("OP_CONSTANT", chunk, offset);
+
+#define CONSTANT(op)                                                           \
+  case op:                                                                     \
+    return constant_instruction(#op, chunk, offset);
+
+    CONSTANT(OP_CONSTANT)
+    CONSTANT(OP_GET_GLOBAL)
+    CONSTANT(OP_DEFINE_GLOBAL)
+    CONSTANT(OP_SET_GLOBAL)
+
+#undef CONSTANT
 
 #define SIMPLE(op)                                                             \
   case op:                                                                     \
@@ -46,6 +55,8 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     SIMPLE(OP_NIL)
     SIMPLE(OP_TRUE)
     SIMPLE(OP_FALSE)
+
+    SIMPLE(OP_POP)
 
     SIMPLE(OP_EQUAL)
     SIMPLE(OP_GREATER)
@@ -59,6 +70,8 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     SIMPLE(OP_SUB)
     SIMPLE(OP_MUL)
     SIMPLE(OP_DIV)
+
+    SIMPLE(OP_PRINT)
 
     SIMPLE(OP_RETURN)
 

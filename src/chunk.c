@@ -14,16 +14,7 @@ void chunk_init(Chunk *chunk) {
 
 void chunk_free(Chunk *chunk) {
   VEC_FREE(chunk->code);
-
-  // Free any object constants before dropping the allocation.
-  for (unsigned int i = 0; i < VEC_LEN(chunk->constants); i++) {
-    Value v = VEC_GET(chunk->constants, i);
-    if (IS_OBJ(v)) {
-      obj_free(AS_OBJ(v));
-    }
-  }
   VEC_FREE(chunk->constants);
-
   VEC_FREE(chunk->lines);
 }
 

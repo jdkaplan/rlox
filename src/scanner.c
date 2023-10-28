@@ -43,7 +43,7 @@ char peek_next(Scanner *scanner) {
   return scanner->current[1];
 }
 
-bool match(Scanner *scanner, const char expected) {
+bool scanner_match(Scanner *scanner, const char expected) {
   if (at_eof(scanner)) {
     return false;
   }
@@ -215,19 +215,23 @@ Token scanner_next(Scanner *scanner) {
 
   // One or two characters, 1 lookahead
   case '!': {
-    TokenType type = match(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG;
+    TokenType type =
+        scanner_match(scanner, '=') ? TOKEN_BANG_EQUAL : TOKEN_BANG;
     return make_token(scanner, type);
   }
   case '=': {
-    TokenType type = match(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL;
+    TokenType type =
+        scanner_match(scanner, '=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL;
     return make_token(scanner, type);
   }
   case '<': {
-    TokenType type = match(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS;
+    TokenType type =
+        scanner_match(scanner, '=') ? TOKEN_LESS_EQUAL : TOKEN_LESS;
     return make_token(scanner, type);
   }
   case '>': {
-    TokenType type = match(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER;
+    TokenType type =
+        scanner_match(scanner, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER;
     return make_token(scanner, type);
   }
 

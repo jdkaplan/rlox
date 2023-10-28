@@ -12,11 +12,13 @@ void vm_reset_stack(Vm *vm) { vm->stack_top = vm->stack; }
 
 void vm_init(Vm *vm) {
   vm_reset_stack(vm);
+  table_init(&vm->globals);
   table_init(&vm->strings);
   vm->objects = NULL;
 }
 
 void vm_free(Vm *vm) {
+  table_free(&vm->globals);
   table_free(&vm->strings);
   free_objects(vm->objects);
 }
@@ -63,6 +65,7 @@ void runtime_error(Vm *vm, const char *format, ...) {
 InterpretResult vm_run(Vm *vm) {
 #define READ_BYTE()     ((Opcode)(*vm->ip++))
 #define READ_CONSTANT() (VEC_GET(vm->chunk->constants, READ_BYTE()))
+#define READ_STRING()   (AS_STRING(READ_CONSTANT()))
 
 #define BINARY_OP(vm, vtype, op)                                               \
   do {                                                                         \
@@ -109,6 +112,41 @@ InterpretResult vm_run(Vm *vm) {
     }
     case OP_FALSE: {
       vm_push(vm, V_BOOL(false));
+      break;
+    }
+
+    case OP_POP: {
+      vm_pop(vm);
+      break;
+    }
+
+    case OP_GET_GLOBAL: {
+      ObjString *name = READ_STRING();
+      Value value;
+      if (!table_get(&vm->globals, name, &value)) {
+        runtime_error(vm, "undefined variable: '%s'", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      vm_push(vm, value);
+      break;
+    }
+
+    case OP_DEFINE_GLOBAL: {
+      ObjString *name = READ_STRING();
+      table_set(&vm->globals, name, vm_peek(vm, 0));
+      vm_pop(vm);
+      break;
+    }
+
+    case OP_SET_GLOBAL: {
+      ObjString *name = READ_STRING();
+      if (table_set(&vm->globals, name, vm_peek(vm, 0))) {
+        // If this was a new key, that means the global wasn't actually defined
+        // yet! Delete it back out and throw the runtime error.
+        table_delete(&vm->globals, name);
+        runtime_error(vm, "undefined variable: '%s'", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
       break;
     }
 
@@ -172,10 +210,13 @@ InterpretResult vm_run(Vm *vm) {
       break;
     }
 
-    case OP_RETURN: {
-      Value v = vm_pop(vm);
-      print_value(v);
+    case OP_PRINT: {
+      print_value(vm_pop(vm));
       printf("\n");
+      break;
+    }
+
+    case OP_RETURN: {
       return INTERPRET_OK;
     }
 
@@ -186,6 +227,7 @@ InterpretResult vm_run(Vm *vm) {
     }
   }
 
+#undef READ_STRING
 #undef READ_CONSTANT
 #undef READ_BYTE
 }
