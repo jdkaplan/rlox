@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "chunk.h"
 #include "compiler.h"
 #include "debug.h"
 #include "object.h"
@@ -66,7 +67,8 @@ static void runtime_error(Vm *vm, const char *format, ...) {
 }
 
 static InterpretResult vm_run(Vm *vm) {
-#define READ_BYTE()     ((Opcode)(*vm->ip++))
+#define READ_BYTE()     (*vm->ip++)
+#define READ_SHORT()    (vm->ip += 2, (uint16_t)((vm->ip[-2] << 8) | vm->ip[-1]))
 #define READ_CONSTANT() (VEC_GET(vm->chunk->constants, READ_BYTE()))
 #define READ_STRING()   (AS_STRING(READ_CONSTANT()))
 
@@ -231,6 +233,24 @@ static InterpretResult vm_run(Vm *vm) {
       break;
     }
 
+    case OP_JUMP: {
+      uint16_t offset = READ_SHORT();
+      vm->ip += offset;
+      break;
+    }
+    case OP_JUMP_IF_FALSE: {
+      uint16_t offset = READ_SHORT();
+      if (is_falsey(vm_peek(vm, 0))) {
+        vm->ip += offset;
+      }
+      break;
+    }
+    case OP_LOOP: {
+      uint16_t offset = READ_SHORT();
+      vm->ip -= offset;
+      break;
+    }
+
     case OP_RETURN: {
       return INTERPRET_OK;
     }
@@ -244,6 +264,7 @@ static InterpretResult vm_run(Vm *vm) {
 
 #undef READ_STRING
 #undef READ_CONSTANT
+#undef READ_SHORT
 #undef READ_BYTE
 }
 

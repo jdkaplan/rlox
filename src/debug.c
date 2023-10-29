@@ -31,6 +31,16 @@ static unsigned int byte_instruction(const char *name, Chunk *chunk,
   return offset + 2;
 }
 
+static unsigned int jump_instruction(const char *name, int sign, Chunk *chunk,
+                                     unsigned int offset) {
+
+  uint16_t jump = (uint16_t)(VEC_GET(chunk->code, offset + 1) << 8);
+  jump |= VEC_GET(chunk->code, offset + 2);
+
+  printf("%-16s %4d -> %d\n", name, offset, (int)offset + 3 + sign * jump);
+  return offset + 3;
+}
+
 unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
   printf("%04d ", offset);
 
@@ -63,6 +73,16 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     BYTE(OP_SET_LOCAL)
 
 #undef BYTE
+
+#define JUMP(op, sign)                                                         \
+  case op:                                                                     \
+    return jump_instruction(#op, sign, chunk, offset);
+
+    JUMP(OP_JUMP, +1)
+    JUMP(OP_JUMP_IF_FALSE, +1)
+    JUMP(OP_LOOP, -1)
+
+#undef JUMP
 
 #define SIMPLE(op)                                                             \
   case op:                                                                     \

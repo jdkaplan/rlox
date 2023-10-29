@@ -37,6 +37,8 @@ MKDIR = mkdir -p
 BUILD_DIR = ./build
 SOURCE_FILES = $(wildcard src/*.c) $(wildcard src/*.h)
 
+WATCH = build
+
 .PHONY: build
 build: clox
 
@@ -46,12 +48,13 @@ run: build
 
 .PHONY: watch
 watch:
-	until fd . | entr -cdp $(MAKE) run ; do echo 'Edit a file or press Space to start.'; done
+	until fd . | entr -cdp $(MAKE) $(WATCH) ; do echo 'Edit a file or press Space to start.'; done
 
 .PHONY: clox
 clox: $(SOURCE_FILES)
 	$(MKDIR) "$(BUILD_DIR)"
 	$(CC) -o "$(BUILD_DIR)/clox" $(CFLAGS) $(SOURCE_FILES)
 
+.PHONY: clean
 clean:
 	$(RM) "$(BUILD_DIR)/clox"

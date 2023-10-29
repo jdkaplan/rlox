@@ -86,6 +86,36 @@ static void emit_bytes(Parser *parser, uint8_t b1, uint8_t b2) {
   chunk_write(chunk, b2, parser->previous.line);
 }
 
+static void emit_loop(Parser *parser, unsigned int loop_start) {
+  emit_byte(parser, OP_LOOP);
+
+  unsigned int offset = VEC_LEN(current_chunk(parser)->code) - loop_start + 2;
+  if (offset > UINT16_MAX) {
+    error(parser, "loop body too large");
+  }
+
+  emit_byte(parser, (uint8_t)((offset >> 8) & 0xff));
+  emit_byte(parser, (uint8_t)(offset & 0xff));
+}
+
+static unsigned int emit_jump(Parser *parser, Opcode op) {
+  emit_byte(parser, op);
+  emit_bytes(parser, 0xff, 0xff);
+  return VEC_LEN(current_chunk(parser)->code) - 2;
+}
+
+static void patch_jump(Parser *parser, unsigned int offset) {
+  // Walk two extra bytes past the offset itself.
+  unsigned int jump = (VEC_LEN(current_chunk(parser)->code)) - offset - 2;
+
+  if (jump > UINT16_MAX) {
+    error(parser, "too much code to jump over");
+  }
+
+  VEC_SET(current_chunk(parser)->code, offset, (jump >> 8) & 0xff);
+  VEC_SET(current_chunk(parser)->code, offset + 1, jump & 0xff);
+}
+
 static void emit_return(Parser *parser) { emit_byte(parser, OP_RETURN); }
 
 static uint8_t make_constant(Parser *parser, Value value) {
@@ -266,6 +296,42 @@ static void define_variable(Parser *parser, uint8_t global) {
   emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
+static void and_(Parser *parser, bool UNUSED(can_assign)) {
+  // [ a ]
+
+  // jump_false_peek end
+  unsigned int end_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+  // pop a
+  emit_byte(parser, OP_POP);
+  // <b>
+  parse_precedence(parser, PREC_AND);
+  // end:
+  patch_jump(parser, end_jump);
+
+  // [ a and b ]
+}
+
+static void or_(Parser *parser, bool UNUSED(can_assign)) {
+  // TODO: Implement symmetrically with and_.
+
+  // [ a ]
+
+  // jump_false_peek else
+  unsigned int else_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+  // jump end
+  unsigned int end_jump = emit_jump(parser, OP_JUMP);
+  // else:
+  patch_jump(parser, else_jump);
+  // pop a
+  emit_byte(parser, OP_POP);
+  // <b>
+  parse_precedence(parser, PREC_OR);
+  // end:
+  patch_jump(parser, end_jump);
+
+  // [ a or b ]
+}
+
 static void binary(Parser *parser, bool UNUSED(can_assign)) {
   TokenType op = parser->previous.type;
   ParseRule *rule = get_rule(op);
@@ -435,10 +501,131 @@ static void stmt_expr(Parser *parser) {
   emit_byte(parser, OP_POP);
 }
 
+static void stmt_if(Parser *parser) {
+  // <cond>
+  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after 'if'");
+  expression(parser);
+  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after condition");
+
+  // jump_false_peek else
+  unsigned int then_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+  // pop cond
+  emit_byte(parser, OP_POP);
+  // <conseq>
+  statement(parser);
+
+  // TODO: Avoid the double-jump if no else branch.
+
+  // jump out
+  unsigned int else_jump = emit_jump(parser, OP_JUMP);
+
+  // else:
+  patch_jump(parser, then_jump);
+  // pop cond
+  emit_byte(parser, OP_POP);
+
+  // <alt>
+  if (match(parser, TOKEN_ELSE)) {
+    statement(parser);
+  }
+  // out:
+  patch_jump(parser, else_jump);
+}
+
 static void stmt_print(Parser *parser) {
   expression(parser);
   consume(parser, TOKEN_SEMICOLON, "expect ';' after value");
   emit_byte(parser, OP_PRINT);
+}
+
+static void stmt_while(Parser *parser) {
+  // start:
+  unsigned int loop_start = VEC_LEN(current_chunk(parser)->code);
+  // <cond>
+  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after 'while'");
+  expression(parser);
+  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after condition");
+
+  // jump_false_peek exit
+  unsigned int exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+  // pop cond
+  emit_byte(parser, OP_POP);
+  // <body>
+  statement(parser);
+  // jump start
+  emit_loop(parser, loop_start);
+  // exit:
+  patch_jump(parser, exit_jump);
+  // pop cond
+  emit_byte(parser, OP_POP);
+}
+
+static void stmt_for(Parser *parser) {
+  scope_begin(parser);
+
+  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after 'for'");
+
+  // <init>
+  if (match(parser, TOKEN_SEMICOLON)) {
+    // No init
+  } else if (match(parser, TOKEN_VAR)) {
+    decl_var(parser);
+  } else {
+    stmt_expr(parser);
+  }
+
+  // start:
+  unsigned int loop_start = VEC_LEN(current_chunk(parser)->code);
+
+  bool has_exit = false;
+  unsigned int exit_jump = 0;
+
+  // <cond>
+  if (!match(parser, TOKEN_SEMICOLON)) {
+    expression(parser);
+    consume(parser, TOKEN_SEMICOLON, "expect ';' after for loop condition");
+
+    // jump_false_peek exit
+    exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
+    has_exit = true;
+
+    // pop cond
+    emit_byte(parser, OP_POP);
+  }
+
+  if (!match(parser, TOKEN_RIGHT_PAREN)) {
+    // jump body
+    unsigned int body_jump = emit_jump(parser, OP_JUMP);
+
+    // incr:
+    unsigned int incr_start = VEC_LEN(current_chunk(parser)->code);
+    // <next>
+    expression(parser);
+    // pop next
+    emit_byte(parser, OP_POP);
+
+    consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after for loop clauses");
+
+    // jump start
+    emit_loop(parser, loop_start);
+    loop_start = incr_start;
+
+    // body:
+    patch_jump(parser, body_jump);
+  }
+
+  // <body>
+  statement(parser);
+  // jump start
+  emit_loop(parser, loop_start);
+  // exit:
+  if (has_exit) {
+    patch_jump(parser, exit_jump);
+    // pop cond
+    emit_byte(parser, OP_POP);
+  }
+
+  scope_end(parser);
 }
 
 static void synchronize(Parser *parser) {
@@ -482,6 +669,12 @@ static void declaration(Parser *parser) {
 static void statement(Parser *parser) {
   if (match(parser, TOKEN_PRINT)) {
     stmt_print(parser);
+  } else if (match(parser, TOKEN_IF)) {
+    stmt_if(parser);
+  } else if (match(parser, TOKEN_FOR)) {
+    stmt_for(parser);
+  } else if (match(parser, TOKEN_WHILE)) {
+    stmt_while(parser);
   } else if (match(parser, TOKEN_LEFT_BRACE)) {
     scope_begin(parser);
     block(parser);
@@ -515,7 +708,7 @@ ParseRule rules[] = {
   [TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE      },
   [TOKEN_STRING]        = {string,   NULL,   PREC_NONE      },
   [TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE      },
-  [TOKEN_AND]           = {NULL,     NULL,   PREC_NONE      },
+  [TOKEN_AND]           = {NULL,     and_,   PREC_AND       },
   [TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_FALSE]         = {literal,  NULL,   PREC_NONE      },
@@ -523,7 +716,7 @@ ParseRule rules[] = {
   [TOKEN_FUN]           = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_IF]            = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_NIL]           = {literal,  NULL,   PREC_NONE      },
-  [TOKEN_OR]            = {NULL,     NULL,   PREC_NONE      },
+  [TOKEN_OR]            = {NULL,     or_,    PREC_OR        },
   [TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE      },

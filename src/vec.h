@@ -36,5 +36,9 @@
 
 #define VEC_LEN(vec)      vec.len
 #define VEC_GET(vec, idx) vec.items[idx]
+#define VEC_SET(vec, idx, val)                                                 \
+  do {                                                                         \
+    vec.items[idx] = val;                                                      \
+  } while (0)
 
 #endif
