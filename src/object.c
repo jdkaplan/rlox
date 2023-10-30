@@ -22,14 +22,28 @@ static Obj *allocate_obj(Obj **objs, size_t size, ObjType type) {
   return object;
 }
 
+ObjFunction *fun_new(Obj **objs) {
+  ObjFunction *fun = ALLOCATE_OBJ(objs, ObjFunction, O_FUNCTION);
+  fun->arity = 0;
+  fun->name = NULL;
+  chunk_init(&fun->chunk);
+  return fun;
+};
+
+ObjNative *native_new(Obj **objs, NativeFn fn) {
+  ObjNative *nat = ALLOCATE_OBJ(objs, ObjNative, O_NATIVE);
+  nat->fn = fn;
+  return nat;
+}
+
 static ObjString *allocate_string(Obj **objs, Table *strings, char *chars,
                                   size_t length, uint32_t hash) {
-  ObjString *string = ALLOCATE_OBJ(objs, ObjString, O_STRING);
-  string->length = length;
-  string->chars = chars;
-  string->hash = hash;
-  table_set(strings, string, V_NIL);
-  return string;
+  ObjString *str = ALLOCATE_OBJ(objs, ObjString, O_STRING);
+  str->length = length;
+  str->chars = chars;
+  str->hash = hash;
+  table_set(strings, str, V_NIL);
+  return str;
 }
 
 static uint32_t str_hash(const char *key, size_t length) {
@@ -70,8 +84,24 @@ ObjString *str_clone(Obj **objs, Table *strings, const char *chars,
   return allocate_string(objs, strings, heap_chars, length, hash);
 }
 
+void print_function(ObjFunction *fun) {
+  if (fun->name == NULL) {
+    printf("<script>");
+  } else {
+    printf("<fn %s>", fun->name->chars);
+  }
+}
+
 void print_object(Value value) {
   switch (OBJ_TYPE(value)) {
+  case O_FUNCTION: {
+    print_function(AS_FUNCTION(value));
+    break;
+  }
+  case O_NATIVE: {
+    printf("<native fn>");
+    break;
+  }
   case O_STRING: {
     printf("%s", AS_CSTRING(value));
     break;
@@ -89,6 +119,16 @@ void free_objects(Obj *root) {
 
 void obj_free(Obj *obj) {
   switch (obj->type) {
+  case O_FUNCTION: {
+    ObjFunction *function = (ObjFunction *)(obj);
+    chunk_free(&function->chunk);
+    FREE(ObjFunction, obj);
+    break;
+  }
+  case O_NATIVE: {
+    FREE(ObjNative, obj);
+    break;
+  }
   case O_STRING: {
     ObjString *str = (ObjString *)(obj);
     FREE_ARRAY(char, str->chars, str->length + 1);

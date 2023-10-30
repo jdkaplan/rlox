@@ -71,6 +71,7 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
 
     BYTE(OP_GET_LOCAL)
     BYTE(OP_SET_LOCAL)
+    BYTE(OP_CALL)
 
 #undef BYTE
 

@@ -11,17 +11,27 @@ typedef struct {
   int depth;
 } Local;
 
-typedef struct {
+typedef enum {
+  MODE_FUNCTION,
+  MODE_SCRIPT,
+} FunctionMode;
+
+typedef struct Compiler Compiler;
+
+struct Compiler {
+  Compiler *enclosing;
+  ObjFunction *function;
+  FunctionMode mode;
+
   Local locals[UINT8_COUNT];
   int local_count;
   int scope_depth;
-} Compiler;
+};
 
 typedef struct {
   Token current;
   Token previous;
 
-  Chunk *chunk;
   Scanner *scanner;
   Compiler *compiler;
 
@@ -34,6 +44,6 @@ typedef struct {
   // end borrow
 } Parser;
 
-bool compile(const char *source, Chunk *chunk, Obj **objects, Table *strings);
+ObjFunction *compile(const char *source, Obj **objects, Table *strings);
 
 #endif

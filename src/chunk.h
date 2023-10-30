@@ -35,12 +35,13 @@ typedef enum {
   OP_JUMP_IF_FALSE,
   OP_LOOP,
 
+  OP_CALL,
+  OP_RETURN,
+
   OP_ADD,
   OP_SUB,
   OP_MUL,
   OP_DIV,
-
-  OP_RETURN,
 } Opcode;
 
 typedef VEC(uint8_t) Bytecode;

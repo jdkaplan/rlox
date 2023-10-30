@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "scanner.h"
@@ -146,12 +147,15 @@ static TokenType keyword_or_identifier(Scanner *scanner) {
   KWD_IF("class", TOKEN_CLASS)
   KWD_IF("else", TOKEN_ELSE)
   KWD_IF("false", TOKEN_FALSE)
+  KWD_IF("for", TOKEN_FOR)
+  KWD_IF("fun", TOKEN_FUN)
   KWD_IF("if", TOKEN_IF)
   KWD_IF("nil", TOKEN_NIL)
   KWD_IF("or", TOKEN_OR)
   KWD_IF("print", TOKEN_PRINT)
   KWD_IF("return", TOKEN_RETURN)
   KWD_IF("super", TOKEN_SUPER)
+  KWD_IF("this", TOKEN_THIS)
   KWD_IF("true", TOKEN_TRUE)
   KWD_IF("var", TOKEN_VAR)
   KWD_IF("while", TOKEN_WHILE)
@@ -237,4 +241,59 @@ Token scanner_next(Scanner *scanner) {
   default:
     return make_error(scanner, "unexpected character");
   }
+}
+
+void dbg_token(Token token) {
+  switch (token.type) {
+#define CASE(type)                                                             \
+  case type: {                                                                 \
+    fprintf(stderr, #type);                                                    \
+    break;                                                                     \
+  }
+
+    CASE(TOKEN_LEFT_PAREN)
+    CASE(TOKEN_RIGHT_PAREN)
+    CASE(TOKEN_LEFT_BRACE)
+    CASE(TOKEN_RIGHT_BRACE)
+    CASE(TOKEN_COMMA)
+    CASE(TOKEN_DOT)
+    CASE(TOKEN_MINUS)
+    CASE(TOKEN_PLUS)
+    CASE(TOKEN_SEMICOLON)
+    CASE(TOKEN_SLASH)
+    CASE(TOKEN_STAR)
+    CASE(TOKEN_BANG)
+    CASE(TOKEN_BANG_EQUAL)
+    CASE(TOKEN_EQUAL)
+    CASE(TOKEN_EQUAL_EQUAL)
+    CASE(TOKEN_GREATER)
+    CASE(TOKEN_GREATER_EQUAL)
+    CASE(TOKEN_LESS)
+    CASE(TOKEN_LESS_EQUAL)
+    CASE(TOKEN_IDENTIFIER)
+    CASE(TOKEN_STRING)
+    CASE(TOKEN_NUMBER)
+    CASE(TOKEN_AND)
+    CASE(TOKEN_CLASS)
+    CASE(TOKEN_ELSE)
+    CASE(TOKEN_FALSE)
+    CASE(TOKEN_FOR)
+    CASE(TOKEN_FUN)
+    CASE(TOKEN_IF)
+    CASE(TOKEN_NIL)
+    CASE(TOKEN_OR)
+    CASE(TOKEN_PRINT)
+    CASE(TOKEN_RETURN)
+    CASE(TOKEN_SUPER)
+    CASE(TOKEN_THIS)
+    CASE(TOKEN_TRUE)
+    CASE(TOKEN_VAR)
+    CASE(TOKEN_WHILE)
+    CASE(TOKEN_ERROR)
+    CASE(TOKEN_EOF)
+#undef CASE
+
+    break;
+  }
+  fprintf(stderr, " %.*s\n", token.length, token.start);
 }

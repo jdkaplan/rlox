@@ -46,6 +46,8 @@ static void advance(Parser *parser) {
   for (;;) {
     parser->current = scanner_next(parser->scanner);
 
+    // dbg_token(parser->current);
+
     if (parser->current.type != TOKEN_ERROR)
       break;
 
@@ -74,7 +76,9 @@ static bool match(Parser *parser, TokenType type) {
   return true;
 }
 
-static Chunk *current_chunk(Parser *parser) { return parser->chunk; }
+static Chunk *current_chunk(Parser *parser) {
+  return &parser->compiler->function->chunk;
+}
 
 static void emit_byte(Parser *parser, uint8_t byte) {
   chunk_write(current_chunk(parser), byte, parser->previous.line);
@@ -116,7 +120,10 @@ static void patch_jump(Parser *parser, unsigned int offset) {
   VEC_SET(current_chunk(parser)->code, offset + 1, jump & 0xff);
 }
 
-static void emit_return(Parser *parser) { emit_byte(parser, OP_RETURN); }
+static void emit_return(Parser *parser) {
+  emit_byte(parser, OP_NIL);
+  emit_byte(parser, OP_RETURN);
+}
 
 static uint8_t make_constant(Parser *parser, Value value) {
   return chunk_add_constant(current_chunk(parser), value);
@@ -126,19 +133,39 @@ static void emit_constant(Parser *parser, Value value) {
   emit_bytes(parser, OP_CONSTANT, make_constant(parser, value));
 }
 
-static void end_compilation(Parser *parser) {
+static ObjFunction *end_compiler(Parser *parser) {
   emit_return(parser);
+  ObjFunction *function = parser->compiler->function;
 
 #ifdef DEBUG_PRINT_CODE
   if (!parser->had_error) {
-    disassemble_chunk(current_chunk(parser), "<code>");
+    disassemble_chunk(current_chunk(parser), function->name != NULL
+                                                 ? function->name->chars
+                                                 : "<script>");
   }
 #endif
+
+  parser->compiler = parser->compiler->enclosing;
+  return function;
 }
 
-static void compiler_init(Compiler *compiler) {
+static void compiler_init(Parser *parser, Compiler *compiler,
+                          FunctionMode mode) {
+  compiler->enclosing = parser->compiler;
+  compiler->function = NULL;
+  compiler->mode = mode;
   compiler->local_count = 0;
   compiler->scope_depth = 0;
+
+  compiler->function = fun_new(parser->objects);
+
+  parser->compiler = compiler;
+
+  // Reserve stack slot zero for the currently executing function.
+  Local *local = &parser->compiler->locals[parser->compiler->local_count++];
+  local->depth = 0;
+  local->name.start = "";
+  local->name.length = 0;
 }
 
 static void scope_begin(Parser *parser) {
@@ -171,6 +198,10 @@ static void add_local(Parser *parser, Token name) {
 }
 
 static void mark_initialized(Compiler *compiler) {
+  if (compiler->scope_depth == 0) {
+    // Global variables don't have their initialization tracked like this.
+    return;
+  }
   compiler->locals[compiler->local_count - 1].depth = compiler->scope_depth;
   // defined: value available at a certain depth
 }
@@ -296,6 +327,21 @@ static void define_variable(Parser *parser, uint8_t global) {
   emit_bytes(parser, OP_DEFINE_GLOBAL, global);
 }
 
+static uint8_t argument_list(Parser *parser) {
+  uint8_t arg_count = 0;
+  if (!check(parser, TOKEN_RIGHT_PAREN)) {
+    do {
+      expression(parser);
+      if (arg_count == UINT8_MAX) {
+        error(parser, "too many arguments");
+      }
+      arg_count++;
+    } while (match(parser, TOKEN_COMMA));
+  }
+  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after arguments");
+  return arg_count;
+}
+
 static void and_(Parser *parser, bool UNUSED(can_assign)) {
   // [ a ]
 
@@ -383,6 +429,11 @@ static void binary(Parser *parser, bool UNUSED(can_assign)) {
   default:
     return; // Unreachable
   }
+}
+
+static void call(Parser *parser, bool UNUSED(can_assign)) {
+  uint8_t arg_count = argument_list(parser);
+  emit_bytes(parser, OP_CALL, arg_count);
 }
 
 static void literal(Parser *parser, bool UNUSED(can_assign)) {
@@ -482,6 +533,51 @@ static void block(Parser *parser) {
   consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after block");
 }
 
+static void function(Parser *parser, FunctionMode mode) {
+  Compiler compiler;
+  compiler_init(parser, &compiler, mode);
+
+  if (mode != MODE_SCRIPT) {
+    compiler.function->name =
+        str_clone(parser->objects, parser->strings, parser->previous.start,
+                  (size_t)(parser->previous.length));
+  }
+
+  scope_begin(parser);
+
+  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after function name");
+  if (!check(parser, TOKEN_RIGHT_PAREN)) {
+    do {
+      parser->compiler->function->arity++;
+      if (parser->compiler->function->arity > UINT8_MAX) {
+        error_at_current(parser, "too many parameters");
+      }
+
+      uint8_t constant = parse_variable(parser, "expect parameter name");
+      define_variable(parser, constant);
+    } while (match(parser, TOKEN_COMMA));
+  }
+  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after function parameters");
+  consume(parser, TOKEN_LEFT_BRACE, "expect '{' before function body");
+  block(parser);
+
+  // scope_end(parser) isn't necessary because all locals have already been
+  // popped by the time the function returns.
+  ObjFunction *function = end_compiler(parser);
+  emit_bytes(parser, OP_CONSTANT, make_constant(parser, V_OBJ(function)));
+}
+
+static void decl_fun(Parser *parser) {
+  uint8_t global = parse_variable(parser, "expect function name");
+
+  // Allow the function's name to be used within its body to support recursion.
+  mark_initialized(parser->compiler);
+
+  function(parser, MODE_FUNCTION);
+
+  define_variable(parser, global);
+}
+
 static void decl_var(Parser *parser) {
   uint8_t global = parse_variable(parser, "expect variable name");
 
@@ -536,6 +632,20 @@ static void stmt_print(Parser *parser) {
   expression(parser);
   consume(parser, TOKEN_SEMICOLON, "expect ';' after value");
   emit_byte(parser, OP_PRINT);
+}
+
+static void stmt_return(Parser *parser) {
+  if (parser->compiler->mode == MODE_SCRIPT) {
+    error(parser, "cannot return from top-level code");
+  }
+
+  if (match(parser, TOKEN_SEMICOLON)) {
+    emit_return(parser);
+  } else {
+    expression(parser);
+    consume(parser, TOKEN_SEMICOLON, "expect ';' after return value");
+    emit_byte(parser, OP_RETURN);
+  }
 }
 
 static void stmt_while(Parser *parser) {
@@ -655,7 +765,9 @@ static void synchronize(Parser *parser) {
 }
 
 static void declaration(Parser *parser) {
-  if (match(parser, TOKEN_VAR)) {
+  if (match(parser, TOKEN_FUN)) {
+    decl_fun(parser);
+  } else if (match(parser, TOKEN_VAR)) {
     decl_var(parser);
   } else {
     statement(parser);
@@ -673,6 +785,8 @@ static void statement(Parser *parser) {
     stmt_if(parser);
   } else if (match(parser, TOKEN_FOR)) {
     stmt_for(parser);
+  } else if (match(parser, TOKEN_RETURN)) {
+    stmt_return(parser);
   } else if (match(parser, TOKEN_WHILE)) {
     stmt_while(parser);
   } else if (match(parser, TOKEN_LEFT_BRACE)) {
@@ -686,7 +800,7 @@ static void statement(Parser *parser) {
 
 ParseRule rules[] = {
   // clang-format off
-  [TOKEN_LEFT_PAREN]    = {group,    NULL,   PREC_NONE      },
+  [TOKEN_LEFT_PAREN]    = {group,    call,   PREC_CALL      },
   [TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE      },
@@ -731,28 +845,28 @@ ParseRule rules[] = {
 
 static ParseRule *get_rule(TokenType type) { return &rules[type]; }
 
-bool compile(const char *source, Chunk *chunk, Obj **objects, Table *strings) {
+ObjFunction *compile(const char *source, Obj **objects, Table *strings) {
   Scanner scanner;
   scanner_init(&scanner, source);
 
   Compiler compiler;
-  compiler_init(&compiler);
 
   Parser parser;
   parser.scanner = &scanner;
-  parser.compiler = &compiler;
-  parser.chunk = chunk;
+  parser.compiler = NULL;
   parser.had_error = false;
   parser.panicking = false;
   parser.objects = objects;
   parser.strings = strings;
+
+  compiler_init(&parser, &compiler, MODE_SCRIPT);
 
   advance(&parser);
 
   while (!match(&parser, TOKEN_EOF)) {
     declaration(&parser);
   }
-  end_compilation(&parser);
 
-  return !parser.had_error;
+  ObjFunction *fun = end_compiler(&parser);
+  return parser.had_error ? NULL : fun;
 }
