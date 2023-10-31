@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "debug.h"
+#include "object.h"
 
 void disassemble_chunk(Chunk *chunk, const char *name) {
   printf("== %s ==\n", name);
@@ -71,6 +72,8 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
 
     BYTE(OP_GET_LOCAL)
     BYTE(OP_SET_LOCAL)
+    BYTE(OP_GET_UPVALUE)
+    BYTE(OP_SET_UPVALUE)
     BYTE(OP_CALL)
 
 #undef BYTE
@@ -110,9 +113,28 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
 
     SIMPLE(OP_PRINT)
 
+    SIMPLE(OP_CLOSE_UPVALUE)
     SIMPLE(OP_RETURN)
 
 #undef SIMPLE
+
+  case OP_CLOSURE: {
+    offset++;
+    uint8_t constant = VEC_GET(chunk->code, offset++);
+    printf("%-16s %4d ", "OP_CLOSURE", constant);
+    print_value(VEC_GET(chunk->constants, constant));
+    printf("\n");
+
+    ObjFunction *function = AS_FUNCTION(VEC_GET(chunk->constants, constant));
+    for (int j = 0; j < function->upvalue_count; j++) {
+      int is_local = VEC_GET(chunk->code, offset++);
+      int index = VEC_GET(chunk->code, offset++);
+      printf("%04d      |                     %s %d\n", offset - 2,
+             is_local ? "local" : "upvalue", index);
+    }
+
+    return offset;
+  }
 
   default:
     printf("Unknown opcode %d\n", instruction);

@@ -7,9 +7,11 @@
 #include "value.h"
 
 typedef enum {
+  O_CLOSURE,
   O_FUNCTION,
   O_NATIVE,
   O_STRING,
+  O_UPVALUE,
 } ObjType;
 
 struct Obj {
@@ -20,6 +22,7 @@ struct Obj {
 typedef struct {
   Obj obj;
   unsigned int arity;
+  int upvalue_count;
   Chunk chunk;
   ObjString *name;
 } ObjFunction;
@@ -38,12 +41,31 @@ struct ObjString {
   uint32_t hash;
 };
 
+typedef struct ObjUpvalue ObjUpvalue;
+
+struct ObjUpvalue {
+  Obj obj;
+  Value *location;
+  Value closed;
+  ObjUpvalue *next;
+};
+
+typedef struct {
+  Obj obj;
+  ObjFunction *function;
+
+  ObjUpvalue **upvalues;
+  int upvalue_count;
+} ObjClosure;
+
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
 
+#define IS_CLOSURE(value)  (is_obj_type(value, O_CLOSURE))
 #define IS_FUNCTION(value) (is_obj_type(value, O_FUNCTION))
 #define IS_NATIVE(value)   (is_obj_type(value, O_NATIVE))
 #define IS_STRING(value)   (is_obj_type(value, O_STRING))
 
+#define AS_CLOSURE(value)  ((ObjClosure *)(AS_OBJ(value)))
 #define AS_FUNCTION(value) ((ObjFunction *)(AS_OBJ(value)))
 #define AS_NATIVE(value)   (((ObjNative *)(AS_OBJ(value)))->fn)
 #define AS_STRING(value)   ((ObjString *)(AS_OBJ(value)))
@@ -53,8 +75,10 @@ static inline bool is_obj_type(Value value, ObjType type) {
   return IS_OBJ(value) && OBJ_TYPE(value) == type;
 }
 
-ObjFunction *fun_new(Obj **objs);
+ObjClosure *closure_new(Obj **objs, ObjFunction *function);
+ObjFunction *function_new(Obj **objs);
 ObjNative *native_new(Obj **objs, NativeFn fn);
+ObjUpvalue *upvalue_new(Obj **objs, Value *slot);
 
 ObjString *str_take(Obj **objs, Table *strings, char *chars, size_t length);
 ObjString *str_clone(Obj **objs, Table *strings, const char *chars,

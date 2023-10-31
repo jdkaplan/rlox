@@ -157,13 +157,14 @@ static void compiler_init(Parser *parser, Compiler *compiler,
   compiler->local_count = 0;
   compiler->scope_depth = 0;
 
-  compiler->function = fun_new(parser->objects);
+  compiler->function = function_new(parser->objects);
 
   parser->compiler = compiler;
 
   // Reserve stack slot zero for the currently executing function.
   Local *local = &parser->compiler->locals[parser->compiler->local_count++];
   local->depth = 0;
+  local->is_captured = false;
   local->name.start = "";
   local->name.length = 0;
 }
@@ -177,11 +178,15 @@ static void scope_end(Parser *parser) {
   Compiler *compiler = parser->compiler;
   compiler->scope_depth--;
 
-  // TODO: OP_POPN is a good optimization here.
+  // TODO: OP_POP_N/OP_CLOSE_UPVALUE_N is a good optimization here.
   while (compiler->local_count > 0 &&
          compiler->locals[compiler->local_count - 1].depth >
              compiler->scope_depth) {
-    emit_byte(parser, OP_POP);
+    if (compiler->locals[compiler->local_count - 1].is_captured) {
+      emit_byte(parser, OP_CLOSE_UPVALUE);
+    } else {
+      emit_byte(parser, OP_POP);
+    }
     compiler->local_count--;
   }
 }
@@ -195,6 +200,7 @@ static void add_local(Parser *parser, Token name) {
   Local *local = &parser->compiler->locals[parser->compiler->local_count++];
   local->name = name;
   local->depth = -1; // declared: reserved without value
+  local->is_captured = false;
 }
 
 static void mark_initialized(Compiler *compiler) {
@@ -272,8 +278,9 @@ static bool identifiers_equal(Token *a, Token *b) {
   return memcmp(a->start, b->start, (size_t)(a->length)) == 0;
 }
 
-static int resolve_local(Parser *parser, Token *name) {
-  Compiler *compiler = parser->compiler;
+static int resolve_local(Parser *parser, Compiler *compiler, Token *name) {
+  // Parser is only used to report errors.
+  // Compiler is used to resolve locals.
 
   for (int i = compiler->local_count - 1; i >= 0; i--) {
     Local *local = &compiler->locals[i];
@@ -284,6 +291,52 @@ static int resolve_local(Parser *parser, Token *name) {
       return i;
     }
   }
+  return -1;
+}
+
+static int add_upvalue(Parser *parser, Compiler *compiler, uint8_t index,
+                       bool is_local) {
+  // Parser is only used to report errors.
+  // Compiler is used to resolve locals.
+
+  int upvalue_count = compiler->function->upvalue_count;
+
+  for (int i = 0; i < upvalue_count; i++) {
+    Upvalue *upvalue = &compiler->upvalues[i];
+    if (upvalue->index == index && upvalue->is_local == is_local) {
+      return i;
+    }
+  }
+
+  if (upvalue_count == UINT8_COUNT) {
+    error(parser, "too many closure variables in function");
+    return 0;
+  }
+
+  compiler->upvalues[upvalue_count].is_local = is_local;
+  compiler->upvalues[upvalue_count].index = index;
+  return compiler->function->upvalue_count++;
+}
+
+static int resolve_upvalue(Parser *parser, Compiler *compiler, Token *name) {
+  // Parser is only used to report errors.
+  // Compiler is used to resolve locals.
+
+  if (compiler->enclosing == NULL) {
+    return -1;
+  }
+
+  int local = resolve_local(parser, compiler->enclosing, name);
+  if (local != -1) {
+    compiler->enclosing->locals[local].is_captured = true;
+    return add_upvalue(parser, compiler, (uint8_t)(local), true);
+  }
+
+  int upvalue = resolve_upvalue(parser, compiler->enclosing, name);
+  if (upvalue != -1) {
+    return add_upvalue(parser, compiler, (uint8_t)(upvalue), false);
+  }
+
   return -1;
 }
 
@@ -479,15 +532,19 @@ static void string(Parser *parser, bool UNUSED(can_assign)) {
 static void named_variable(Parser *parser, Token name, bool can_assign) {
   Opcode op_get, op_set;
   uint8_t slot;
-  int arg = resolve_local(parser, &name);
-  if (arg == -1) {
-    slot = identifier_constant(parser, &name);
-    op_get = OP_GET_GLOBAL;
-    op_set = OP_SET_GLOBAL;
-  } else {
+  int arg = resolve_local(parser, parser->compiler, &name);
+  if (arg != -1) {
     slot = (uint8_t)(arg);
     op_get = OP_GET_LOCAL;
     op_set = OP_SET_LOCAL;
+  } else if ((arg = resolve_upvalue(parser, parser->compiler, &name)) != -1) {
+    slot = (uint8_t)(arg);
+    op_get = OP_GET_UPVALUE;
+    op_set = OP_SET_UPVALUE;
+  } else {
+    slot = identifier_constant(parser, &name);
+    op_get = OP_GET_GLOBAL;
+    op_set = OP_SET_GLOBAL;
   }
 
   if (can_assign && match(parser, TOKEN_EQUAL)) {
@@ -561,10 +618,15 @@ static void function(Parser *parser, FunctionMode mode) {
   consume(parser, TOKEN_LEFT_BRACE, "expect '{' before function body");
   block(parser);
 
-  // scope_end(parser) isn't necessary because all locals have already been
-  // popped by the time the function returns.
+  // scope_end(parser) isn't necessary because all locals will get implicitly
+  // popped when the VM pops the CallFrame.
   ObjFunction *function = end_compiler(parser);
-  emit_bytes(parser, OP_CONSTANT, make_constant(parser, V_OBJ(function)));
+  emit_bytes(parser, OP_CLOSURE, make_constant(parser, V_OBJ(function)));
+
+  for (int i = 0; i < function->upvalue_count; i++) {
+    emit_byte(parser, compiler.upvalues[i].is_local ? 1 : 0);
+    emit_byte(parser, compiler.upvalues[i].index);
+  }
 }
 
 static void decl_fun(Parser *parser) {
