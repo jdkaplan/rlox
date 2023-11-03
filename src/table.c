@@ -12,8 +12,8 @@ void table_init(Table *table) {
   table->entries = NULL;
 }
 
-void table_free(Table *table) {
-  FREE_ARRAY(Entry, table->entries, table->cap);
+void table_free(Gc gc, Table *table) {
+  FREE_ARRAY(gc, Entry, table->entries, table->cap);
   table_init(table);
 }
 
@@ -41,8 +41,8 @@ static Entry *find(Entry *entries, uint32_t cap, ObjString *key) {
   }
 }
 
-static void resize(Table *table, uint32_t cap) {
-  Entry *entries = ALLOCATE(Entry, cap);
+static void resize(Gc gc, Table *table, uint32_t cap) {
+  Entry *entries = ALLOCATE(gc, Entry, cap);
   for (unsigned int i = 0; i < cap; i++) {
     entries[i].key = NULL;
     entries[i].value = V_NIL;
@@ -60,7 +60,7 @@ static void resize(Table *table, uint32_t cap) {
     dest->value = entry->value;
   }
 
-  FREE_ARRAY(Entry, table->entries, table->cap);
+  FREE_ARRAY(gc, Entry, table->entries, table->cap);
   table->entries = entries;
   table->cap = cap;
 }
@@ -79,10 +79,10 @@ bool table_get(Table *table, ObjString *key, Value *value) {
   return true;
 }
 
-bool table_set(Table *table, ObjString *key, Value value) {
+bool table_set(Gc gc, Table *table, ObjString *key, Value value) {
   if (table->size + 1 > table->cap * TABLE_MAX_LOAD) {
     unsigned int cap = GROW_CAP(table->cap);
-    resize(table, cap);
+    resize(gc, table, cap);
   }
 
   Entry *entry = find(table->entries, table->cap, key);
@@ -113,11 +113,11 @@ bool table_delete(Table *table, ObjString *key) {
   return true;
 }
 
-void table_extend(Table *dst, Table *src) {
+void table_extend(Gc gc, Table *dst, Table *src) {
   for (unsigned int i = 0; i < src->cap; i++) {
     Entry *entry = &src->entries[i];
     if (entry->key != NULL) {
-      table_set(dst, entry->key, entry->value);
+      table_set(gc, dst, entry->key, entry->value);
     }
   }
 }
@@ -144,5 +144,14 @@ ObjString *table_find_string(Table *table, const char *chars, size_t length,
     }
 
     idx = (idx + 1) % table->cap;
+  }
+}
+
+void table_remove_unreachable(Table *table) {
+  for (unsigned int i = 0; i < table->cap; i++) {
+    Entry *entry = &table->entries[i];
+    if (entry->key != NULL && !entry->key->obj.is_marked) {
+      table_delete(table, entry->key);
+    }
   }
 }

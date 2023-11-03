@@ -15,7 +15,7 @@ typedef struct {
   Value *slots;
 } CallFrame;
 
-typedef struct {
+struct Vm {
   CallFrame frames[FRAMES_MAX];
   unsigned int frame_count;
 
@@ -26,7 +26,14 @@ typedef struct {
   Table strings;
   ObjUpvalue *open_upvalues;
   Obj *objects;
-} Vm;
+
+  unsigned int gc_pending_len;
+  unsigned int gc_pending_cap;
+  Obj **gc_pending_stack;
+
+  size_t bytes_allocated;
+  size_t next_gc;
+};
 
 void vm_init(Vm *vm);
 void vm_free(Vm *vm);
@@ -40,5 +47,7 @@ typedef enum {
 InterpretResult vm_interpret(Vm *vm, const char *source);
 void vm_push(Vm *vm, Value value);
 Value vm_pop(Vm *vm);
+
+void gc_mark_roots_vm(Vm *vm);
 
 #endif

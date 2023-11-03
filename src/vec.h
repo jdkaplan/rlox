@@ -17,18 +17,18 @@
     vec.cap = 0;                                                               \
   } while (0)
 
-#define VEC_FREE(vec)                                                          \
+#define VEC_FREE(gc, vec)                                                      \
   do {                                                                         \
-    FREE_ARRAY(typeof(vec.items), vec.items, vec.cap);                         \
+    FREE_ARRAY(gc, typeof(vec.items), vec.items, vec.cap);                     \
     VEC_INIT(vec);                                                             \
   } while (0)
 
-#define VEC_APPEND(vec, item)                                                  \
+#define VEC_APPEND(gc, vec, item)                                              \
   do {                                                                         \
     if (vec.len + 1 >= vec.cap) {                                              \
       unsigned int old_cap = vec.cap;                                          \
       vec.cap = GROW_CAP(old_cap);                                             \
-      vec.items = GROW_ARRAY(typeof(item), vec.items, old_cap, vec.cap);       \
+      vec.items = GROW_ARRAY(gc, typeof(item), vec.items, old_cap, vec.cap);   \
     }                                                                          \
     vec.items[vec.len] = item;                                                 \
     vec.len++;                                                                 \

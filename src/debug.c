@@ -6,6 +6,12 @@
 void disassemble_chunk(Chunk *chunk, const char *name) {
   printf("== %s ==\n", name);
 
+  for (unsigned int i = 0; i < VEC_LEN(chunk->constants); i++) {
+    printf("CONSTANT %4d = ", i);
+    print_value(VEC_GET(chunk->constants, i));
+    printf("\n");
+  }
+
   for (unsigned int offset = 0; offset < VEC_LEN(chunk->code);) {
     offset = disassemble_instruction(chunk, offset);
   }

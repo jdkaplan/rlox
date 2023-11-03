@@ -20,24 +20,46 @@ static void define_native(Vm *vm, const char *name, NativeFn fn);
 static void vm_reset_stack(Vm *vm) {
   vm->stack_top = vm->stack;
   vm->frame_count = 0;
+  vm->open_upvalues = NULL;
 }
 
-void vm_init(Vm *vm) {
+void vm_zero(Vm *vm) {
   vm_reset_stack(vm);
+
+  vm->bytes_allocated = 0;
+  vm->next_gc = 0;
+
+  vm->gc_pending_len = 0;
+  vm->gc_pending_cap = 0;
+  vm->gc_pending_stack = NULL;
 
   table_init(&vm->globals);
   table_init(&vm->strings);
 
   vm->open_upvalues = NULL;
   vm->objects = NULL;
+}
 
+void vm_init(Vm *vm) {
+  vm_zero(vm);
+
+  vm->next_gc = 1024 * 1024;
   define_native(vm, "clock", clock_native);
 }
 
 void vm_free(Vm *vm) {
-  table_free(&vm->globals);
-  table_free(&vm->strings);
-  free_objects(vm->objects);
+  Gc gc = {vm, NULL};
+
+  table_free(gc, &vm->globals);
+  table_free(gc, &vm->strings);
+
+  // GC: This is going to free every known object managed by this VM. This
+  // somehow tries to free more bytes than the VM ever allocated. Give this a
+  // null VM to avoid segfaulting when that happens.
+  gc.vm = NULL;
+  free_objects(gc, vm->objects);
+
+  free(vm->gc_pending_stack);
 }
 
 void vm_push(Vm *vm, Value value) {
@@ -79,11 +101,17 @@ static void runtime_error(Vm *vm, const char *format, ...) {
 }
 
 static void define_native(Vm *vm, const char *name, NativeFn fn) {
-  vm_push(vm, V_OBJ(str_clone(&vm->objects, &vm->strings, name, strlen(name))));
-  vm_push(vm, V_OBJ(native_new(&vm->objects, fn)));
-  table_set(&vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
-  vm_pop(vm);
-  vm_pop(vm);
+  Gc gc = {vm, NULL};
+
+  // GC: Ensure the name and value objects are reachable in case resizing the
+  // table triggers garbage collection.
+  {
+    vm_push(vm, V_OBJ(str_clone(gc, name, strlen(name))));
+    vm_push(vm, V_OBJ(native_new(gc, fn)));
+    table_set(gc, &vm->globals, AS_STRING(vm->stack[0]), vm->stack[1]);
+    vm_pop(vm);
+    vm_pop(vm);
+  }
 }
 
 static bool call(Vm *vm, ObjClosure *closure, unsigned int argc) {
@@ -143,8 +171,10 @@ static ObjUpvalue *capture_upvalue(Vm *vm, Value *local) {
     return upvalue;
   }
 
+  Gc gc = {vm, NULL};
+
   // Linked-list insert between `prev` and `upvalue` (next).
-  ObjUpvalue *created = upvalue_new(&vm->objects, local);
+  ObjUpvalue *created = upvalue_new(gc, local);
   created->next = upvalue;
   if (prev == NULL) {
     vm->open_upvalues = created;
@@ -167,19 +197,20 @@ static bool is_falsey(Value v) {
   return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v));
 }
 
-static ObjString *concatenate(Obj **objs, Table *strings, ObjString *a,
-                              ObjString *b) {
+static ObjString *concatenate(Gc gc, ObjString *a, ObjString *b) {
   size_t length = a->length + b->length;
-  char *chars = ALLOCATE(char, length + 1);
+  char *chars = ALLOCATE(gc, char, length + 1);
 
   memcpy(chars, a->chars, a->length);
   memcpy(chars + a->length, b->chars, b->length);
   chars[length] = '\0';
 
-  return str_take(objs, strings, chars, length);
+  return str_take(gc, chars, length);
 }
 
 static InterpretResult vm_run(Vm *vm) {
+  Gc gc = {vm, NULL};
+
   CallFrame *frame = &vm->frames[vm->frame_count - 1];
 
 #define READ_BYTE() (*frame->ip++)
@@ -256,7 +287,7 @@ static InterpretResult vm_run(Vm *vm) {
 
     case OP_DEFINE_GLOBAL: {
       ObjString *name = READ_STRING();
-      table_set(&vm->globals, name, vm_peek(vm, 0));
+      table_set(gc, &vm->globals, name, vm_peek(vm, 0));
       vm_pop(vm);
       break;
     }
@@ -272,7 +303,7 @@ static InterpretResult vm_run(Vm *vm) {
     }
     case OP_SET_GLOBAL: {
       ObjString *name = READ_STRING();
-      if (table_set(&vm->globals, name, vm_peek(vm, 0))) {
+      if (table_set(gc, &vm->globals, name, vm_peek(vm, 0))) {
         // If this was a new key, that means the global wasn't actually defined
         // yet! Delete it back out and throw the runtime error.
         table_delete(&vm->globals, name);
@@ -326,10 +357,16 @@ static InterpretResult vm_run(Vm *vm) {
 
     case OP_ADD: {
       if (IS_STRING(vm_peek(vm, 0)) && IS_STRING(vm_peek(vm, 1))) {
-        ObjString *b = AS_STRING(vm_pop(vm));
-        ObjString *a = AS_STRING(vm_pop(vm));
-        ObjString *result = concatenate(&vm->objects, &vm->strings, a, b);
-        vm_push(vm, V_OBJ(result));
+        // GC: Keep the source strings reachable while allocating the result in
+        // case that triggers garbage collection.
+        {
+          ObjString *b = AS_STRING(vm_peek(vm, 0));
+          ObjString *a = AS_STRING(vm_peek(vm, 1));
+          ObjString *result = concatenate(gc, a, b);
+          vm_pop(vm);
+          vm_pop(vm);
+          vm_push(vm, V_OBJ(result));
+        }
       } else if (IS_NUMBER(vm_peek(vm, 0)) && IS_NUMBER(vm_peek(vm, 1))) {
         double b = AS_NUMBER(vm_pop(vm));
         double a = AS_NUMBER(vm_pop(vm));
@@ -387,7 +424,7 @@ static InterpretResult vm_run(Vm *vm) {
     }
     case OP_CLOSURE: {
       ObjFunction *fun = AS_FUNCTION(READ_CONSTANT());
-      ObjClosure *closure = closure_new(&vm->objects, fun);
+      ObjClosure *closure = closure_new(gc, fun);
       vm_push(vm, V_OBJ(closure));
 
       for (int i = 0; i < closure->upvalue_count; i++) {
@@ -437,16 +474,22 @@ static InterpretResult vm_run(Vm *vm) {
 }
 
 InterpretResult vm_interpret(Vm *vm, const char *source) {
-  ObjFunction *function = compile(source, &vm->objects, &vm->strings);
+  Gc gc = {vm, NULL};
+
+  ObjFunction *function = compile(vm, source);
   if (function == NULL) {
     return INTERPRET_COMPILE_ERROR;
   }
 
-  vm_push(vm, V_OBJ(function));
-  ObjClosure *closure = closure_new(&vm->objects, function);
-  vm_pop(vm);
-  vm_push(vm, V_OBJ(closure));
-  call(vm, closure, 0);
+  // GC: Temporarily make the function reachable.
+  {
+    vm_push(vm, V_OBJ(function));
+    ObjClosure *closure = closure_new(gc, function);
+    vm_pop(vm);
+
+    vm_push(vm, V_OBJ(closure));
+    call(vm, closure, 0);
+  }
 
   return vm_run(vm);
 }

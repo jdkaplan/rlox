@@ -58,9 +58,9 @@ typedef struct {
 } Chunk;
 
 void chunk_init(Chunk *chunk);
-void chunk_free(Chunk *chunk);
-void chunk_write(Chunk *chunk, uint8_t byte, int line);
+void chunk_free(Gc gc, Chunk *chunk);
+void chunk_write(Gc gc, Chunk *chunk, uint8_t byte, int line);
 
-uint8_t chunk_add_constant(Chunk *chunk, Value value);
+uint8_t chunk_add_constant(Gc gc, Chunk *chunk, Value value);
 
 #endif

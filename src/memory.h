@@ -3,18 +3,30 @@
 
 #include "common.h"
 
-#define ALLOCATE(type, count)                                                  \
-  (type *)reallocate(NULL, 0, sizeof(type) * (count))
+#define FRAMES_MAX 64
+#define STACK_MAX  (FRAMES_MAX * UINT8_COUNT)
+
+#define ALLOCATE(gc, type, count)                                              \
+  (type *)reallocate(gc, NULL, 0, sizeof(type) * (count))
 
 #define GROW_CAP(cap) ((cap) < 8 ? 8 : (cap)*2)
 
-#define GROW_ARRAY(item, ptr, old, new)                                        \
-  (item *)reallocate(ptr, sizeof(item) * (old), sizeof(item) * (new))
+#define GROW_ARRAY(gc, item, ptr, old, new)                                    \
+  (item *)reallocate(gc, ptr, sizeof(item) * (old), sizeof(item) * (new))
 
-#define FREE_ARRAY(item, ptr, size) reallocate(ptr, sizeof(item) * (size), 0)
+#define FREE_ARRAY(gc, item, ptr, size)                                        \
+  reallocate(gc, ptr, sizeof(item) * (size), 0)
 
-#define FREE(type, ptr) reallocate(ptr, sizeof(type), 0)
+#define FREE(gc, type, ptr) reallocate(gc, ptr, sizeof(type), 0)
 
-void *reallocate(void *ptr, size_t old_size, size_t new_size);
+typedef struct Vm Vm;
+typedef struct Compiler Compiler;
+
+typedef struct {
+  Vm *vm;
+  Compiler *compiler;
+} Gc;
+
+void *reallocate(Gc gc, void *ptr, size_t old_size, size_t new_size);
 
 #endif

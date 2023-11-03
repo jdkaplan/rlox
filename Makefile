@@ -11,7 +11,11 @@ help: ## List targets in this Makefile
 ifeq ($(DEBUG),)
 CDEBUG =
 else
-CDEBUG = -g3 -DDEBUG_TRACE_EXECUTION -DDEBUG_PRINT_CODE
+CDEBUG = -g3 \
+		 -DDEBUG_TRACE_EXECUTION \
+		 -DDEBUG_PRINT_CODE \
+		 -DDEBUG_STRESS_GC \
+		 -DDEBUG_LOG_GC
 endif
 
 CC     = gcc

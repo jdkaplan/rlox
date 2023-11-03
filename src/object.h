@@ -16,6 +16,7 @@ typedef enum {
 
 struct Obj {
   ObjType type;
+  bool is_marked;
   struct Obj *next;
 };
 
@@ -75,17 +76,16 @@ static inline bool is_obj_type(Value value, ObjType type) {
   return IS_OBJ(value) && OBJ_TYPE(value) == type;
 }
 
-ObjClosure *closure_new(Obj **objs, ObjFunction *function);
-ObjFunction *function_new(Obj **objs);
-ObjNative *native_new(Obj **objs, NativeFn fn);
-ObjUpvalue *upvalue_new(Obj **objs, Value *slot);
+ObjClosure *closure_new(Gc gc, ObjFunction *function);
+ObjFunction *function_new(Gc gc);
+ObjNative *native_new(Gc gc, NativeFn fn);
+ObjUpvalue *upvalue_new(Gc gc, Value *slot);
 
-ObjString *str_take(Obj **objs, Table *strings, char *chars, size_t length);
-ObjString *str_clone(Obj **objs, Table *strings, const char *chars,
-                     size_t length);
+ObjString *str_take(Gc gc, char *chars, size_t length);
+ObjString *str_clone(Gc gc, const char *chars, size_t length);
 void print_object(Value value);
 
-void free_objects(Obj *root);
-void obj_free(Obj *obj);
+void free_objects(Gc gc, Obj *root);
+void obj_free(Gc gc, Obj *obj);
 
 #endif

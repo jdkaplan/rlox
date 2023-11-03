@@ -81,13 +81,17 @@ static Chunk *current_chunk(Parser *parser) {
 }
 
 static void emit_byte(Parser *parser, uint8_t byte) {
-  chunk_write(current_chunk(parser), byte, parser->previous.line);
+  Gc gc = {parser->vm, parser->compiler};
+
+  chunk_write(gc, current_chunk(parser), byte, parser->previous.line);
 }
 
 static void emit_bytes(Parser *parser, uint8_t b1, uint8_t b2) {
+  Gc gc = {parser->vm, parser->compiler};
+
   Chunk *chunk = current_chunk(parser);
-  chunk_write(chunk, b1, parser->previous.line);
-  chunk_write(chunk, b2, parser->previous.line);
+  chunk_write(gc, chunk, b1, parser->previous.line);
+  chunk_write(gc, chunk, b2, parser->previous.line);
 }
 
 static void emit_loop(Parser *parser, unsigned int loop_start) {
@@ -126,7 +130,9 @@ static void emit_return(Parser *parser) {
 }
 
 static uint8_t make_constant(Parser *parser, Value value) {
-  return chunk_add_constant(current_chunk(parser), value);
+  Gc gc = {parser->vm, parser->compiler};
+
+  return chunk_add_constant(gc, current_chunk(parser), value);
 }
 
 static void emit_constant(Parser *parser, Value value) {
@@ -151,13 +157,15 @@ static ObjFunction *end_compiler(Parser *parser) {
 
 static void compiler_init(Parser *parser, Compiler *compiler,
                           FunctionMode mode) {
+  Gc gc = {parser->vm, parser->compiler};
+
   compiler->enclosing = parser->compiler;
   compiler->function = NULL;
   compiler->mode = mode;
   compiler->local_count = 0;
   compiler->scope_depth = 0;
 
-  compiler->function = function_new(parser->objects);
+  compiler->function = function_new(gc);
 
   parser->compiler = compiler;
 
@@ -266,8 +274,9 @@ static void parse_precedence(Parser *parser, Precedence precedence) {
 }
 
 static uint8_t identifier_constant(Parser *parser, Token *name) {
-  ObjString *string = str_clone(parser->objects, parser->strings, name->start,
-                                (size_t)(name->length));
+  Gc gc = {parser->vm, parser->compiler};
+
+  ObjString *string = str_clone(gc, name->start, (size_t)(name->length));
   return make_constant(parser, V_OBJ(string));
 }
 
@@ -519,12 +528,14 @@ static void number(Parser *parser, bool UNUSED(can_assign)) {
 }
 
 static void string(Parser *parser, bool UNUSED(can_assign)) {
+  Gc gc = {parser->vm, parser->compiler};
+
   // Drop the leading quote '"'
   const char *start = parser->previous.start + 1;
   // Drop the trailing quote '"' and one more because pointer math.
   size_t length = (size_t)(parser->previous.length - 2);
 
-  ObjString *str = str_clone(parser->objects, parser->strings, start, length);
+  ObjString *str = str_clone(gc, start, length);
   // TODO: This is where handling escape sequence would go.
   emit_constant(parser, V_OBJ(str));
 }
@@ -594,10 +605,11 @@ static void function(Parser *parser, FunctionMode mode) {
   Compiler compiler;
   compiler_init(parser, &compiler, mode);
 
+  Gc gc = {parser->vm, parser->compiler};
+
   if (mode != MODE_SCRIPT) {
-    compiler.function->name =
-        str_clone(parser->objects, parser->strings, parser->previous.start,
-                  (size_t)(parser->previous.length));
+    compiler.function->name = str_clone(gc, parser->previous.start,
+                                        (size_t)(parser->previous.length));
   }
 
   scope_begin(parser);
@@ -907,7 +919,7 @@ ParseRule rules[] = {
 
 static ParseRule *get_rule(TokenType type) { return &rules[type]; }
 
-ObjFunction *compile(const char *source, Obj **objects, Table *strings) {
+ObjFunction *compile(Vm *vm, const char *source) {
   Scanner scanner;
   scanner_init(&scanner, source);
 
@@ -918,8 +930,7 @@ ObjFunction *compile(const char *source, Obj **objects, Table *strings) {
   parser.compiler = NULL;
   parser.had_error = false;
   parser.panicking = false;
-  parser.objects = objects;
-  parser.strings = strings;
+  parser.vm = vm;
 
   compiler_init(&parser, &compiler, MODE_SCRIPT);
 

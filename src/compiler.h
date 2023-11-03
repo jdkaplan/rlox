@@ -1,7 +1,6 @@
 #ifndef clox_compiler_h
 #define clox_compiler_h
 
-#include "chunk.h"
 #include "object.h"
 #include "scanner.h"
 #include "table.h"
@@ -45,12 +44,9 @@ typedef struct {
   bool had_error;
   bool panicking;
 
-  // Borrowed from VM
-  Obj **objects;
-  Table *strings;
-  // end borrow
+  Vm *vm;
 } Parser;
 
-ObjFunction *compile(const char *source, Obj **objects, Table *strings);
+ObjFunction *compile(Vm *vm, const char *source);
 
 #endif
