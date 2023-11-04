@@ -24,14 +24,17 @@ typedef enum {
   OP_GET_PROPERTY,
   OP_SET_PROPERTY,
 
+  OP_NOT,
   OP_EQUAL,
   OP_GREATER,
   OP_LESS,
   // TODO: The other three _are_ needed to handle NaN properly.
 
-  OP_NOT,
-
   OP_NEG,
+  OP_ADD,
+  OP_SUB,
+  OP_MUL,
+  OP_DIV,
 
   OP_PRINT,
 
@@ -40,16 +43,13 @@ typedef enum {
   OP_LOOP,
 
   OP_CALL,
+  OP_INVOKE,
   OP_CLOSURE,
   OP_CLOSE_UPVALUE,
   OP_RETURN,
 
   OP_CLASS,
-
-  OP_ADD,
-  OP_SUB,
-  OP_MUL,
-  OP_DIV,
+  OP_METHOD,
 } Opcode;
 
 typedef VEC(uint8_t) Bytecode;

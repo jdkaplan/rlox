@@ -125,7 +125,11 @@ static void patch_jump(Parser *parser, unsigned int offset) {
 }
 
 static void emit_return(Parser *parser) {
-  emit_byte(parser, OP_NIL);
+  if (parser->compiler->mode == MODE_INITIALIZER) {
+    emit_bytes(parser, OP_GET_LOCAL, 0);
+  } else {
+    emit_byte(parser, OP_NIL);
+  }
   emit_byte(parser, OP_RETURN);
 }
 
@@ -173,8 +177,13 @@ static void compiler_init(Parser *parser, Compiler *compiler,
   Local *local = &parser->compiler->locals[parser->compiler->local_count++];
   local->depth = 0;
   local->is_captured = false;
-  local->name.start = "";
-  local->name.length = 0;
+  if (mode != MODE_FUNCTION) {
+    local->name.start = "this";
+    local->name.length = 4;
+  } else {
+    local->name.start = "";
+    local->name.length = 0;
+  }
 }
 
 static void scope_begin(Parser *parser) {
@@ -505,6 +514,10 @@ static void dot(Parser *parser, bool can_assign) {
   if (can_assign && match(parser, TOKEN_EQUAL)) {
     expression(parser);
     emit_bytes(parser, OP_SET_PROPERTY, name);
+  } else if (match(parser, TOKEN_LEFT_PAREN)) {
+    uint8_t argc = argument_list(parser);
+    emit_bytes(parser, OP_INVOKE, name);
+    emit_byte(parser, argc);
   } else {
     emit_bytes(parser, OP_GET_PROPERTY, name);
   }
@@ -580,6 +593,15 @@ static void named_variable(Parser *parser, Token name, bool can_assign) {
 
 static void variable(Parser *parser, bool can_assign) {
   named_variable(parser, parser->previous, can_assign);
+}
+
+static void this_(Parser *parser, bool UNUSED(can_assign)) {
+  if (parser->klass == NULL) {
+    error(parser, "cannot use 'this' outside of a class");
+    return;
+  }
+
+  variable(parser, false);
 }
 
 static void unary(Parser *parser, bool UNUSED(can_assign)) {
@@ -728,6 +750,11 @@ static void stmt_return(Parser *parser) {
   if (match(parser, TOKEN_SEMICOLON)) {
     emit_return(parser);
   } else {
+    if (parser->compiler->mode == MODE_INITIALIZER) {
+      error(parser, "cannot return a value from an initializer");
+      // Continue compiling the expression anyway to let the parser re-sync.
+    }
+
     expression(parser);
     consume(parser, TOKEN_SEMICOLON, "expect ';' after return value");
     emit_byte(parser, OP_RETURN);
@@ -850,16 +877,45 @@ static void synchronize(Parser *parser) {
   }
 }
 
+static void method(Parser *parser) {
+  consume(parser, TOKEN_IDENTIFIER, "expect method name");
+  uint8_t constant = identifier_constant(parser, &parser->previous);
+
+  FunctionMode mode = MODE_METHOD;
+  if (parser->previous.length == 4 &&
+      memcmp(parser->previous.start, "init", 4) == 0) {
+    mode = MODE_INITIALIZER;
+  }
+
+  function(parser, mode);
+
+  emit_bytes(parser, OP_METHOD, constant);
+}
+
 static void decl_class(Parser *parser) {
   consume(parser, TOKEN_IDENTIFIER, "expect class name");
+  Token class_name = parser->previous;
+
   uint8_t name_constant = identifier_constant(parser, &parser->previous);
   declare_variable(parser);
 
   emit_bytes(parser, OP_CLASS, name_constant);
   define_variable(parser, name_constant);
 
+  ClassCompiler klass;
+  klass.enclosing = parser->klass;
+  parser->klass = &klass;
+
+  named_variable(parser, class_name, false);
+
   consume(parser, TOKEN_LEFT_BRACE, "expect '{' before class body");
+  while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+    method(parser);
+  }
   consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after class body");
+  emit_byte(parser, OP_POP); // class
+
+  parser->klass = parser->klass->enclosing;
 }
 
 static void declaration(Parser *parser) {
@@ -934,7 +990,7 @@ ParseRule rules[] = {
   [TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE      },
-  [TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE      },
+  [TOKEN_THIS]          = {this_,    NULL,   PREC_NONE      },
   [TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE      },
   [TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE      },
@@ -945,19 +1001,24 @@ ParseRule rules[] = {
 
 static ParseRule *get_rule(TokenType type) { return &rules[type]; }
 
+void parser_init(Parser *parser, Scanner *scanner, Vm *vm) {
+  parser->had_error = false;
+  parser->panicking = false;
+
+  parser->scanner = scanner;
+  parser->compiler = NULL;
+  parser->klass = NULL;
+  parser->vm = vm;
+}
+
 ObjFunction *compile(Vm *vm, const char *source) {
   Scanner scanner;
   scanner_init(&scanner, source);
 
-  Compiler compiler;
-
   Parser parser;
-  parser.scanner = &scanner;
-  parser.compiler = NULL;
-  parser.had_error = false;
-  parser.panicking = false;
-  parser.vm = vm;
+  parser_init(&parser, &scanner, vm);
 
+  Compiler compiler;
   compiler_init(&parser, &compiler, MODE_SCRIPT);
 
   advance(&parser);

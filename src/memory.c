@@ -3,6 +3,7 @@
 
 #include "compiler.h"
 #include "memory.h"
+#include "object.h"
 #include "table.h"
 #include "vm.h"
 
@@ -86,6 +87,8 @@ static void gc_mark_roots(Gc gc) {
 
   gc_mark_table(gc, &gc.vm->globals);
 
+  gc_mark_obj(gc, (Obj *)(gc.vm->init_string));
+
   Compiler *compiler = gc.compiler;
   while (compiler != NULL) {
     gc_mark_obj(gc, (Obj *)(compiler->function));
@@ -101,9 +104,16 @@ static void gc_expand_obj(Gc gc, Obj *obj) {
 #endif
 
   switch (obj->type) {
+  case O_BOUND_METHOD: {
+    ObjBoundMethod *bound = (ObjBoundMethod *)(obj);
+    gc_mark_value(gc, bound->receiver);
+    gc_mark_obj(gc, (Obj *)(bound->method));
+    break;
+  }
   case O_CLASS: {
     ObjClass *klass = (ObjClass *)(obj);
     gc_mark_obj(gc, (Obj *)(klass->name));
+    gc_mark_table(gc, &klass->methods);
     break;
   }
 

@@ -67,6 +67,7 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
 
     CONSTANT(OP_CONSTANT)
     CONSTANT(OP_CLASS)
+    CONSTANT(OP_METHOD)
     CONSTANT(OP_DEFINE_GLOBAL)
     CONSTANT(OP_GET_GLOBAL)
     CONSTANT(OP_SET_GLOBAL)
@@ -126,6 +127,15 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     SIMPLE(OP_RETURN)
 
 #undef SIMPLE
+
+  case OP_INVOKE: {
+    uint8_t constant = VEC_GET(chunk->code, offset + 1);
+    uint8_t argc = VEC_GET(chunk->code, offset + 2);
+    printf("%-16s (%d args) %4d ", "OP_INVOKE", argc, constant);
+    print_value(VEC_GET(chunk->constants, constant));
+    printf("\n");
+    return offset + 3;
+  }
 
   case OP_CLOSURE: {
     offset++;

@@ -36,6 +36,8 @@ void vm_zero(Vm *vm) {
   table_init(&vm->globals);
   table_init(&vm->strings);
 
+  vm->init_string = NULL;
+
   vm->open_upvalues = NULL;
   vm->objects = NULL;
 }
@@ -44,6 +46,10 @@ void vm_init(Vm *vm) {
   vm_zero(vm);
 
   vm->next_gc = 1024 * 1024;
+
+  Gc gc = {vm, NULL};
+  vm->init_string = str_clone(gc, "init", 4);
+
   define_native(vm, "clock", clock_native);
 }
 
@@ -52,6 +58,8 @@ void vm_free(Vm *vm) {
 
   table_free(gc, &vm->globals);
   table_free(gc, &vm->strings);
+
+  vm->init_string = NULL;
 
   // GC: This is going to free every known object managed by this VM. This
   // somehow tries to free more bytes than the VM ever allocated. Give this a
@@ -139,10 +147,25 @@ static bool call_value(Vm *vm, Value callee, unsigned int argc) {
 
   if (IS_OBJ(callee)) {
     switch (OBJ_TYPE(callee)) {
+    case O_BOUND_METHOD: {
+      ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+      vm->stack_top[-(int)(argc)-1] = bound->receiver;
+      return call(vm, bound->method, argc);
+    }
     case O_CLASS: {
       // Replace the class that was called with an empty instance of that class.
       ObjClass *klass = AS_CLASS(callee);
       vm->stack_top[-(int)(argc)-1] = V_OBJ(instance_new(gc, klass));
+
+      // Init!
+      Value init;
+      if (table_get(&klass->methods, vm->init_string, &init)) {
+        return call(vm, AS_CLOSURE(init), argc);
+      } else if (argc != 0) {
+        runtime_error(vm, "expected 0 arguments but got %d", argc);
+        return false;
+      }
+
       return true;
     }
     case O_CLOSURE:
@@ -160,6 +183,51 @@ static bool call_value(Vm *vm, Value callee, unsigned int argc) {
   }
   runtime_error(vm, "value was not callable");
   return false;
+}
+
+static bool invoke_from_class(Vm *vm, ObjClass *klass, ObjString *name,
+                              unsigned int argc) {
+  Value method;
+  if (!table_get(&klass->methods, name, &method)) {
+    runtime_error(vm, "undefined property '%s'", name->chars);
+    return false;
+  }
+  return call(vm, AS_CLOSURE(method), argc);
+}
+
+static bool invoke(Vm *vm, ObjString *name, unsigned int argc) {
+  Value receiver = vm_peek(vm, argc);
+  if (!IS_INSTANCE(receiver)) {
+    runtime_error(vm, "cannot call method on non-instance");
+    return false;
+  }
+  ObjInstance *instance = AS_INSTANCE(receiver);
+
+  Value value;
+  if (table_get(&instance->fields, name, &value)) {
+    // Turns out this was `obj.field(...)`, so replace the receiver with the
+    // field value and then call it.
+    vm->stack_top[-(int)(argc)-1] = value;
+    return call_value(vm, value, argc);
+  }
+
+  return invoke_from_class(vm, instance->klass, name, argc);
+}
+
+static bool bind_method(Vm *vm, ObjClass *klass, ObjString *name) {
+  Gc gc = {vm, NULL};
+
+  Value method;
+  if (!table_get(&klass->methods, name, &method)) {
+    runtime_error(vm, "undefined property '%s'", name->chars);
+    return false;
+  }
+
+  ObjBoundMethod *bound =
+      bound_method_new(gc, vm_peek(vm, 0), AS_CLOSURE(method));
+  vm_pop(vm); // method
+  vm_push(vm, V_OBJ(bound));
+  return true;
 }
 
 static ObjUpvalue *capture_upvalue(Vm *vm, Value *local) {
@@ -199,6 +267,15 @@ static void close_upvalues(Vm *vm, Value *last) {
     upvalue->location = &upvalue->closed;
     vm->open_upvalues = upvalue->next;
   }
+}
+
+static void define_method(Vm *vm, ObjString *name) {
+  Gc gc = {vm, NULL};
+
+  Value method = vm_peek(vm, 0);
+  ObjClass *klass = AS_CLASS(vm_peek(vm, 1));
+  table_set(gc, &klass->methods, name, method);
+  vm_pop(vm); // method
 }
 
 static bool is_falsey(Value v) {
@@ -341,6 +418,7 @@ static InterpretResult vm_run(Vm *vm) {
       ObjInstance *instance = AS_INSTANCE(vm_peek(vm, 0));
       ObjString *name = READ_STRING();
 
+      // Check fields first because they can shadow methods.
       Value value;
       if (table_get(&instance->fields, name, &value)) {
         vm_pop(vm); // instance
@@ -348,8 +426,12 @@ static InterpretResult vm_run(Vm *vm) {
         break;
       }
 
-      runtime_error(vm, "undefined property: '%s'", name->chars);
-      return INTERPRET_RUNTIME_ERROR;
+      // Method
+      if (!bind_method(vm, instance->klass, name)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      break;
     }
     case OP_SET_PROPERTY: {
       if (!IS_INSTANCE(vm_peek(vm, 1))) {
@@ -466,6 +548,15 @@ static InterpretResult vm_run(Vm *vm) {
       frame = &vm->frames[vm->frame_count - 1];
       break;
     }
+    case OP_INVOKE: {
+      ObjString *method = READ_STRING();
+      unsigned int argc = READ_BYTE();
+      if (!invoke(vm, method, argc)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      frame = &vm->frames[vm->frame_count - 1];
+      break;
+    }
     case OP_CLOSURE: {
       ObjFunction *fun = AS_FUNCTION(READ_CONSTANT());
       ObjClosure *closure = closure_new(gc, fun);
@@ -508,9 +599,13 @@ static InterpretResult vm_run(Vm *vm) {
       vm_push(vm, V_OBJ(class_new(gc, READ_STRING())));
       break;
     }
+    case OP_METHOD: {
+      define_method(vm, READ_STRING());
+      break;
+    }
 
     default: {
-      printf("unknown opcode: %x", instruction);
+      printf("unknown opcode: %d", instruction);
       exit(1);
     }
     }

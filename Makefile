@@ -14,12 +14,17 @@ else
 CDEBUG = -g3 \
 		 -DDEBUG_TRACE_EXECUTION \
 		 -DDEBUG_PRINT_CODE \
-		 -DDEBUG_STRESS_GC \
 		 -DDEBUG_LOG_GC
 endif
 
+ifeq ($(DEBUG_STRESS),)
+CDEBUG_STRESS =
+else
+CDEBUG_STRESS = -DDEBUG_STRESS_GC
+endif
+
 CC     = gcc
-CFLAGS = $(CDEBUG) \
+CFLAGS = $(CDEBUG) $(CDEBUG_STRESS) \
 		 -Wall \
 		 -Wextra \
 		 \

@@ -18,6 +18,8 @@ typedef struct {
 
 typedef enum {
   MODE_FUNCTION,
+  MODE_INITIALIZER,
+  MODE_METHOD,
   MODE_SCRIPT,
 } FunctionMode;
 
@@ -34,12 +36,19 @@ struct Compiler {
   int scope_depth;
 };
 
+typedef struct ClassCompiler ClassCompiler;
+
+struct ClassCompiler {
+  ClassCompiler *enclosing;
+};
+
 typedef struct {
   Token current;
   Token previous;
 
   Scanner *scanner;
   Compiler *compiler;
+  ClassCompiler *klass;
 
   bool had_error;
   bool panicking;
