@@ -498,6 +498,18 @@ static void call(Parser *parser, bool UNUSED(can_assign)) {
   emit_bytes(parser, OP_CALL, arg_count);
 }
 
+static void dot(Parser *parser, bool can_assign) {
+  consume(parser, TOKEN_IDENTIFIER, "expect property name after '.'");
+  uint8_t name = identifier_constant(parser, &parser->previous);
+
+  if (can_assign && match(parser, TOKEN_EQUAL)) {
+    expression(parser);
+    emit_bytes(parser, OP_SET_PROPERTY, name);
+  } else {
+    emit_bytes(parser, OP_GET_PROPERTY, name);
+  }
+}
+
 static void literal(Parser *parser, bool UNUSED(can_assign)) {
   switch (parser->previous.type) {
   case TOKEN_FALSE: {
@@ -838,8 +850,22 @@ static void synchronize(Parser *parser) {
   }
 }
 
+static void decl_class(Parser *parser) {
+  consume(parser, TOKEN_IDENTIFIER, "expect class name");
+  uint8_t name_constant = identifier_constant(parser, &parser->previous);
+  declare_variable(parser);
+
+  emit_bytes(parser, OP_CLASS, name_constant);
+  define_variable(parser, name_constant);
+
+  consume(parser, TOKEN_LEFT_BRACE, "expect '{' before class body");
+  consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after class body");
+}
+
 static void declaration(Parser *parser) {
-  if (match(parser, TOKEN_FUN)) {
+  if (match(parser, TOKEN_CLASS)) {
+    decl_class(parser);
+  } else if (match(parser, TOKEN_FUN)) {
     decl_fun(parser);
   } else if (match(parser, TOKEN_VAR)) {
     decl_var(parser);
@@ -879,7 +905,7 @@ ParseRule rules[] = {
   [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE      },
-  [TOKEN_DOT]           = {NULL,     NULL,   PREC_NONE      },
+  [TOKEN_DOT]           = {NULL,     dot,    PREC_CALL      },
   [TOKEN_MINUS]         = {unary,    binary, PREC_TERM      },
   [TOKEN_PLUS]          = {NULL,     binary, PREC_TERM      },
   [TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE      },

@@ -101,6 +101,12 @@ static void gc_expand_obj(Gc gc, Obj *obj) {
 #endif
 
   switch (obj->type) {
+  case O_CLASS: {
+    ObjClass *klass = (ObjClass *)(obj);
+    gc_mark_obj(gc, (Obj *)(klass->name));
+    break;
+  }
+
   case O_CLOSURE: {
     ObjClosure *closure = (ObjClosure *)(obj);
     gc_mark_obj(gc, (Obj *)(closure->function));
@@ -114,6 +120,13 @@ static void gc_expand_obj(Gc gc, Obj *obj) {
     ObjFunction *fun = (ObjFunction *)(obj);
     gc_mark_obj(gc, (Obj *)(fun->name));
     gc_mark_values(gc, fun->chunk.constants);
+    break;
+  }
+
+  case O_INSTANCE: {
+    ObjInstance *inst = (ObjInstance *)(obj);
+    gc_mark_obj(gc, (Obj *)(inst->klass));
+    gc_mark_table(gc, &inst->fields);
     break;
   }
 

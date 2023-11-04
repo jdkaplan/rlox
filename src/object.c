@@ -25,6 +25,12 @@ static Obj *allocate_obj(Gc gc, size_t size, ObjType type) {
   return object;
 }
 
+ObjClass *class_new(Gc gc, ObjString *name) {
+  ObjClass *klass = ALLOCATE_OBJ(gc, ObjClass, O_CLASS);
+  klass->name = name;
+  return klass;
+}
+
 ObjClosure *closure_new(Gc gc, ObjFunction *function) {
   // TODO: This is a Vec
   ObjUpvalue **upvalues =
@@ -48,6 +54,13 @@ ObjFunction *function_new(Gc gc) {
   chunk_init(&fun->chunk);
   return fun;
 };
+
+ObjInstance *instance_new(Gc gc, ObjClass *klass) {
+  ObjInstance *inst = ALLOCATE_OBJ(gc, ObjInstance, O_INSTANCE);
+  inst->klass = klass;
+  table_init(&inst->fields);
+  return inst;
+}
 
 ObjNative *native_new(Gc gc, NativeFn fn) {
   ObjNative *nat = ALLOCATE_OBJ(gc, ObjNative, O_NATIVE);
@@ -126,12 +139,20 @@ void print_function(ObjFunction *fun) {
 
 void print_object(Value value) {
   switch (OBJ_TYPE(value)) {
+  case O_CLASS: {
+    printf("<class %s>", AS_CLASS(value)->name->chars);
+    break;
+  }
   case O_CLOSURE: {
     print_function(AS_CLOSURE(value)->function);
     break;
   }
   case O_FUNCTION: {
     print_function(AS_FUNCTION(value));
+    break;
+  }
+  case O_INSTANCE: {
+    printf("<instance of %s>", AS_INSTANCE(value)->klass->name->chars);
     break;
   }
   case O_NATIVE: {
@@ -164,6 +185,10 @@ void obj_free(Gc gc, Obj *obj) {
 #endif
 
   switch (obj->type) {
+  case O_CLASS: {
+    FREE(gc, ObjClass, obj);
+    break;
+  }
   case O_CLOSURE: {
     FREE(gc, ObjClosure, obj);
     break;
@@ -172,6 +197,12 @@ void obj_free(Gc gc, Obj *obj) {
     ObjFunction *function = (ObjFunction *)(obj);
     chunk_free(gc, &function->chunk);
     FREE(gc, ObjFunction, obj);
+    break;
+  }
+  case O_INSTANCE: {
+    ObjInstance *inst = (ObjInstance *)(obj);
+    table_free(gc, &inst->fields);
+    FREE(gc, ObjInstance, obj);
     break;
   }
   case O_NATIVE: {

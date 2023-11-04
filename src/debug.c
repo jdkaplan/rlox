@@ -66,9 +66,12 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     return constant_instruction(#op, chunk, offset);
 
     CONSTANT(OP_CONSTANT)
-    CONSTANT(OP_GET_GLOBAL)
+    CONSTANT(OP_CLASS)
     CONSTANT(OP_DEFINE_GLOBAL)
+    CONSTANT(OP_GET_GLOBAL)
     CONSTANT(OP_SET_GLOBAL)
+    CONSTANT(OP_GET_PROPERTY)
+    CONSTANT(OP_SET_PROPERTY)
 
 #undef CONSTANT
 

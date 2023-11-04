@@ -135,8 +135,16 @@ static bool call(Vm *vm, ObjClosure *closure, unsigned int argc) {
 }
 
 static bool call_value(Vm *vm, Value callee, unsigned int argc) {
+  Gc gc = {vm, NULL};
+
   if (IS_OBJ(callee)) {
     switch (OBJ_TYPE(callee)) {
+    case O_CLASS: {
+      // Replace the class that was called with an empty instance of that class.
+      ObjClass *klass = AS_CLASS(callee);
+      vm->stack_top[-(int)(argc)-1] = V_OBJ(instance_new(gc, klass));
+      return true;
+    }
     case O_CLOSURE:
       return call(vm, AS_CLOSURE(callee), argc);
     case O_NATIVE: {
@@ -324,6 +332,42 @@ static InterpretResult vm_run(Vm *vm) {
       break;
     }
 
+    case OP_GET_PROPERTY: {
+      if (!IS_INSTANCE(vm_peek(vm, 0))) {
+        runtime_error(vm, "cannot read property of non-instance value");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      ObjInstance *instance = AS_INSTANCE(vm_peek(vm, 0));
+      ObjString *name = READ_STRING();
+
+      Value value;
+      if (table_get(&instance->fields, name, &value)) {
+        vm_pop(vm); // instance
+        vm_push(vm, value);
+        break;
+      }
+
+      runtime_error(vm, "undefined property: '%s'", name->chars);
+      return INTERPRET_RUNTIME_ERROR;
+    }
+    case OP_SET_PROPERTY: {
+      if (!IS_INSTANCE(vm_peek(vm, 1))) {
+        runtime_error(vm, "cannot set property of non-instance value");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      ObjInstance *instance = AS_INSTANCE(vm_peek(vm, 1));
+      ObjString *name = READ_STRING();
+
+      table_set(gc, &instance->fields, name, vm_peek(vm, 0));
+
+      Value value = vm_pop(vm);
+      vm_pop(vm); // instance
+      vm_push(vm, value);
+      break;
+    }
+
     case OP_EQUAL: {
       Value b = vm_pop(vm);
       Value a = vm_pop(vm);
@@ -457,6 +501,11 @@ static InterpretResult vm_run(Vm *vm) {
       vm->stack_top = frame->slots;
       vm_push(vm, res);
       frame = &vm->frames[vm->frame_count - 1];
+      break;
+    }
+
+    case OP_CLASS: {
+      vm_push(vm, V_OBJ(class_new(gc, READ_STRING())));
       break;
     }
 
