@@ -48,6 +48,16 @@ static unsigned int jump_instruction(const char *name, int sign, Chunk *chunk,
   return offset + 3;
 }
 
+static unsigned int invoke_instruction(const char *name, Chunk *chunk,
+                                       unsigned int offset) {
+  uint8_t constant = VEC_GET(chunk->code, offset + 1);
+  uint8_t argc = VEC_GET(chunk->code, offset + 2);
+  printf("%-16s (%d args) %4d ", name, argc, constant);
+  print_value(VEC_GET(chunk->constants, constant));
+  printf("\n");
+  return offset + 3;
+}
+
 unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
   printf("%04d ", offset);
 
@@ -73,6 +83,7 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     CONSTANT(OP_SET_GLOBAL)
     CONSTANT(OP_GET_PROPERTY)
     CONSTANT(OP_SET_PROPERTY)
+    CONSTANT(OP_GET_SUPER)
 
 #undef CONSTANT
 
@@ -125,17 +136,14 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
 
     SIMPLE(OP_CLOSE_UPVALUE)
     SIMPLE(OP_RETURN)
+    SIMPLE(OP_INHERIT)
 
 #undef SIMPLE
 
-  case OP_INVOKE: {
-    uint8_t constant = VEC_GET(chunk->code, offset + 1);
-    uint8_t argc = VEC_GET(chunk->code, offset + 2);
-    printf("%-16s (%d args) %4d ", "OP_INVOKE", argc, constant);
-    print_value(VEC_GET(chunk->constants, constant));
-    printf("\n");
-    return offset + 3;
-  }
+  case OP_INVOKE:
+    return invoke_instruction("OP_INVOKE", chunk, offset);
+  case OP_SUPER_INVOKE:
+    return invoke_instruction("OP_SUPER_INVOKE", chunk, offset);
 
   case OP_CLOSURE: {
     offset++;

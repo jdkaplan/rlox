@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "debug.h"
 #include "object.h"
+#include "table.h"
 #include "value.h"
 #include "vm.h"
 
@@ -196,7 +197,7 @@ static bool invoke_from_class(Vm *vm, ObjClass *klass, ObjString *name,
 }
 
 static bool invoke(Vm *vm, ObjString *name, unsigned int argc) {
-  Value receiver = vm_peek(vm, argc);
+  Value receiver = vm_peek(vm, (int)(argc));
   if (!IS_INSTANCE(receiver)) {
     runtime_error(vm, "cannot call method on non-instance");
     return false;
@@ -449,6 +450,16 @@ static InterpretResult vm_run(Vm *vm) {
       vm_push(vm, value);
       break;
     }
+    case OP_GET_SUPER: {
+      ObjString *name = READ_STRING();
+      ObjClass *superclass = AS_CLASS(vm_pop(vm));
+
+      if (!bind_method(vm, superclass, name)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      break;
+    }
 
     case OP_EQUAL: {
       Value b = vm_pop(vm);
@@ -557,6 +568,16 @@ static InterpretResult vm_run(Vm *vm) {
       frame = &vm->frames[vm->frame_count - 1];
       break;
     }
+    case OP_SUPER_INVOKE: {
+      ObjString *method = READ_STRING();
+      unsigned int argc = READ_BYTE();
+      ObjClass *superclass = AS_CLASS(vm_pop(vm));
+      if (!invoke_from_class(vm, superclass, method, argc)) {
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      frame = &vm->frames[vm->frame_count - 1];
+      break;
+    }
     case OP_CLOSURE: {
       ObjFunction *fun = AS_FUNCTION(READ_CONSTANT());
       ObjClosure *closure = closure_new(gc, fun);
@@ -597,6 +618,21 @@ static InterpretResult vm_run(Vm *vm) {
 
     case OP_CLASS: {
       vm_push(vm, V_OBJ(class_new(gc, READ_STRING())));
+      break;
+    }
+    case OP_INHERIT: {
+      Value superclass = vm_peek(vm, 1);
+      if (!IS_CLASS(superclass)) {
+        runtime_error(vm, "superclass must be a class");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+
+      // Classes are closed after definition, so the set of methods on a class
+      // can never change. Flattening all methods onto the subclass saves time
+      // on lookups.
+      ObjClass *subclass = AS_CLASS(vm_peek(vm, 0));
+      table_extend(gc, &subclass->methods, &AS_CLASS(superclass)->methods);
+      vm_pop(vm); // subclass
       break;
     }
     case OP_METHOD: {

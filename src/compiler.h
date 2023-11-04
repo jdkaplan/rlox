@@ -40,6 +40,7 @@ typedef struct ClassCompiler ClassCompiler;
 
 struct ClassCompiler {
   ClassCompiler *enclosing;
+  bool has_superclass;
 };
 
 typedef struct {

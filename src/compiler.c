@@ -595,6 +595,37 @@ static void variable(Parser *parser, bool can_assign) {
   named_variable(parser, parser->previous, can_assign);
 }
 
+static Token synthetic_token(const char *text) {
+  Token token;
+  token.start = text;
+  token.length = (int)(strlen(text));
+  return token;
+}
+
+static void super_(Parser *parser, bool UNUSED(can_assign)) {
+  if (parser->klass == NULL) {
+    error(parser, "cannot use 'super' outside of a class");
+  } else if (!parser->klass->has_superclass) {
+    error(parser, "cannot use 'super' in a class with no superclass");
+  }
+
+  consume(parser, TOKEN_DOT, "expect '.' after 'super'");
+  consume(parser, TOKEN_IDENTIFIER, "expect superclass method name");
+  uint8_t name = identifier_constant(parser, &parser->previous);
+
+  named_variable(parser, synthetic_token("this"), false);
+
+  if (match(parser, TOKEN_LEFT_PAREN)) {
+    uint8_t argc = argument_list(parser);
+    named_variable(parser, synthetic_token("super"), false);
+    emit_bytes(parser, OP_SUPER_INVOKE, name);
+    emit_byte(parser, argc);
+  } else {
+    named_variable(parser, synthetic_token("super"), false);
+    emit_bytes(parser, OP_GET_SUPER, name);
+  }
+}
+
 static void this_(Parser *parser, bool UNUSED(can_assign)) {
   if (parser->klass == NULL) {
     error(parser, "cannot use 'this' outside of a class");
@@ -904,7 +935,26 @@ static void decl_class(Parser *parser) {
 
   ClassCompiler klass;
   klass.enclosing = parser->klass;
+  klass.has_superclass = false;
   parser->klass = &klass;
+
+  if (match(parser, TOKEN_LESS)) {
+    consume(parser, TOKEN_IDENTIFIER, "expect superclass name");
+    variable(parser, false);
+
+    if (identifiers_equal(&class_name, &parser->previous)) {
+      error(parser, "class cannot subclass itself");
+    }
+
+    scope_begin(parser);
+    add_local(parser, synthetic_token("super"));
+    define_variable(parser, 0);
+
+    named_variable(parser, class_name, false);
+    emit_byte(parser, OP_INHERIT);
+
+    parser->klass->has_superclass = true;
+  }
 
   named_variable(parser, class_name, false);
 
@@ -914,6 +964,10 @@ static void decl_class(Parser *parser) {
   }
   consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after class body");
   emit_byte(parser, OP_POP); // class
+
+  if (parser->klass->has_superclass) {
+    scope_end(parser);
+  }
 
   parser->klass = parser->klass->enclosing;
 }
@@ -989,7 +1043,7 @@ ParseRule rules[] = {
   [TOKEN_OR]            = {NULL,     or_,    PREC_OR        },
   [TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE      },
   [TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE      },
-  [TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE      },
+  [TOKEN_SUPER]         = {super_,   NULL,   PREC_NONE      },
   [TOKEN_THIS]          = {this_,    NULL,   PREC_NONE      },
   [TOKEN_TRUE]          = {literal,  NULL,   PREC_NONE      },
   [TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE      },
