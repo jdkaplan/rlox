@@ -99,7 +99,7 @@ static Token scan_string(Scanner *scanner) {
   }
 
   if (at_eof(scanner)) {
-    return make_error(scanner, "unterminated string");
+    return make_error(scanner, "Unterminated string.");
   }
 
   // Consume the '"' found by peek()
@@ -239,7 +239,7 @@ Token scanner_next(Scanner *scanner) {
     return scan_string(scanner);
 
   default:
-    return make_error(scanner, "unexpected character");
+    return make_error(scanner, "Unexpected character.");
   }
 }
 

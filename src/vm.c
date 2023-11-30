@@ -125,13 +125,13 @@ static void define_native(Vm *vm, const char *name, NativeFn fn) {
 
 static bool call(Vm *vm, ObjClosure *closure, unsigned int argc) {
   if (argc != closure->function->arity) {
-    runtime_error(vm, "expected %d arguments but got %d",
+    runtime_error(vm, "Expected %d arguments but got %d.",
                   closure->function->arity, argc);
     return false;
   }
 
   if (vm->frame_count == FRAMES_MAX) {
-    runtime_error(vm, "stack overflow");
+    runtime_error(vm, "Stack overflow.");
     return false;
   }
 
@@ -163,7 +163,7 @@ static bool call_value(Vm *vm, Value callee, unsigned int argc) {
       if (table_get(&klass->methods, vm->init_string, &init)) {
         return call(vm, AS_CLOSURE(init), argc);
       } else if (argc != 0) {
-        runtime_error(vm, "expected 0 arguments but got %d", argc);
+        runtime_error(vm, "Expected 0 arguments but got %d.", argc);
         return false;
       }
 
@@ -182,7 +182,7 @@ static bool call_value(Vm *vm, Value callee, unsigned int argc) {
       break; // Not callable
     }
   }
-  runtime_error(vm, "value was not callable");
+  runtime_error(vm, "Can only call functions and classes.");
   return false;
 }
 
@@ -190,7 +190,7 @@ static bool invoke_from_class(Vm *vm, ObjClass *klass, ObjString *name,
                               unsigned int argc) {
   Value method;
   if (!table_get(&klass->methods, name, &method)) {
-    runtime_error(vm, "undefined property '%s'", name->chars);
+    runtime_error(vm, "Undefined property '%s'.", name->chars);
     return false;
   }
   return call(vm, AS_CLOSURE(method), argc);
@@ -199,7 +199,7 @@ static bool invoke_from_class(Vm *vm, ObjClass *klass, ObjString *name,
 static bool invoke(Vm *vm, ObjString *name, unsigned int argc) {
   Value receiver = vm_peek(vm, (int)(argc));
   if (!IS_INSTANCE(receiver)) {
-    runtime_error(vm, "cannot call method on non-instance");
+    runtime_error(vm, "Can't call method on non-instance");
     return false;
   }
   ObjInstance *instance = AS_INSTANCE(receiver);
@@ -220,7 +220,7 @@ static bool bind_method(Vm *vm, ObjClass *klass, ObjString *name) {
 
   Value method;
   if (!table_get(&klass->methods, name, &method)) {
-    runtime_error(vm, "undefined property '%s'", name->chars);
+    runtime_error(vm, "Undefined property '%s'.", name->chars);
     return false;
   }
 
@@ -309,7 +309,7 @@ static InterpretResult vm_run(Vm *vm) {
 #define BINARY_OP(vm, vtype, op)                                               \
   do {                                                                         \
     if (!IS_NUMBER(vm_peek(vm, 0)) || !IS_NUMBER(vm_peek(vm, 1))) {            \
-      runtime_error(vm, "operands must be numbers");                           \
+      runtime_error(vm, "Operands must be numbers.");                          \
       return INTERPRET_RUNTIME_ERROR;                                          \
     }                                                                          \
     double b = AS_NUMBER(vm_pop(vm));                                          \
@@ -381,7 +381,7 @@ static InterpretResult vm_run(Vm *vm) {
       ObjString *name = READ_STRING();
       Value value;
       if (!table_get(&vm->globals, name, &value)) {
-        runtime_error(vm, "undefined variable: '%s'", name->chars);
+        runtime_error(vm, "Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
       vm_push(vm, value);
@@ -393,7 +393,7 @@ static InterpretResult vm_run(Vm *vm) {
         // If this was a new key, that means the global wasn't actually defined
         // yet! Delete it back out and throw the runtime error.
         table_delete(&vm->globals, name);
-        runtime_error(vm, "undefined variable: '%s'", name->chars);
+        runtime_error(vm, "Undefined variable '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
       break;
@@ -412,7 +412,7 @@ static InterpretResult vm_run(Vm *vm) {
 
     case OP_GET_PROPERTY: {
       if (!IS_INSTANCE(vm_peek(vm, 0))) {
-        runtime_error(vm, "cannot read property of non-instance value");
+        runtime_error(vm, "Only instances have properties.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
@@ -436,7 +436,7 @@ static InterpretResult vm_run(Vm *vm) {
     }
     case OP_SET_PROPERTY: {
       if (!IS_INSTANCE(vm_peek(vm, 1))) {
-        runtime_error(vm, "cannot set property of non-instance value");
+        runtime_error(vm, "Only instances have fields.");
         return INTERPRET_RUNTIME_ERROR;
       }
 
@@ -484,7 +484,7 @@ static InterpretResult vm_run(Vm *vm) {
 
     case OP_NEG: {
       if (!IS_NUMBER(vm_peek(vm, 0))) {
-        runtime_error(vm, "operand must be a number");
+        runtime_error(vm, "Operand must be a number.");
         return INTERPRET_RUNTIME_ERROR;
       }
       double a = AS_NUMBER(vm_pop(vm));
@@ -509,7 +509,7 @@ static InterpretResult vm_run(Vm *vm) {
         double a = AS_NUMBER(vm_pop(vm));
         vm_push(vm, V_NUMBER(a + b));
       } else {
-        runtime_error(vm, "operands must be two numbers or two strings");
+        runtime_error(vm, "Operands must be two numbers or two strings.");
         return INTERPRET_RUNTIME_ERROR;
       }
       break;
@@ -623,7 +623,7 @@ static InterpretResult vm_run(Vm *vm) {
     case OP_INHERIT: {
       Value superclass = vm_peek(vm, 1);
       if (!IS_CLASS(superclass)) {
-        runtime_error(vm, "superclass must be a class");
+        runtime_error(vm, "Superclass must be a class.");
         return INTERPRET_RUNTIME_ERROR;
       }
 

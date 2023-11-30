@@ -19,10 +19,10 @@ static void error_at(Parser *parser, Token *token, const char *msg) {
   }
   parser->panicking = true;
 
-  fprintf(stderr, "[line %d] error", token->line);
+  fprintf(stderr, "[line %d] Error", token->line);
 
   if (token->type == TOKEN_EOF) {
-    fprintf(stderr, " at end of file");
+    fprintf(stderr, " at end");
   } else if (token->type == TOKEN_ERROR) {
     // No location info
   } else {
@@ -99,7 +99,7 @@ static void emit_loop(Parser *parser, unsigned int loop_start) {
 
   unsigned int offset = VEC_LEN(current_chunk(parser)->code) - loop_start + 2;
   if (offset > UINT16_MAX) {
-    error(parser, "loop body too large");
+    error(parser, "Loop body too large.");
   }
 
   emit_byte(parser, (uint8_t)((offset >> 8) & 0xff));
@@ -117,7 +117,7 @@ static void patch_jump(Parser *parser, unsigned int offset) {
   unsigned int jump = (VEC_LEN(current_chunk(parser)->code)) - offset - 2;
 
   if (jump > UINT16_MAX) {
-    error(parser, "too much code to jump over");
+    error(parser, "Too much code to jump over.");
   }
 
   VEC_SET(current_chunk(parser)->code, offset, (jump >> 8) & 0xff);
@@ -135,6 +135,11 @@ static void emit_return(Parser *parser) {
 
 static uint8_t make_constant(Parser *parser, Value value) {
   Gc gc = {parser->vm, parser->compiler};
+
+  if (VEC_LEN(current_chunk(parser)->constants) > UINT8_MAX) {
+    error(parser, "Too many constants in one chunk.");
+    return 0;
+  }
 
   return chunk_add_constant(gc, current_chunk(parser), value);
 }
@@ -210,7 +215,7 @@ static void scope_end(Parser *parser) {
 
 static void add_local(Parser *parser, Token name) {
   if (parser->compiler->local_count == UINT8_COUNT) {
-    error(parser, "too many local variables in function");
+    error(parser, "Too many local variables in function.");
     return;
   }
 
@@ -263,7 +268,7 @@ static void parse_precedence(Parser *parser, Precedence precedence) {
   advance(parser);
   ParseFn prefix = get_rule(parser->previous.type)->prefix;
   if (prefix == NULL) {
-    error(parser, "expect expression");
+    error(parser, "Expect expression.");
     return;
   }
 
@@ -278,7 +283,7 @@ static void parse_precedence(Parser *parser, Precedence precedence) {
   }
 
   if (can_assign && match(parser, TOKEN_EQUAL)) {
-    error(parser, "invalid assignment target");
+    error(parser, "Invalid assignment target.");
   }
 }
 
@@ -304,7 +309,7 @@ static int resolve_local(Parser *parser, Compiler *compiler, Token *name) {
     Local *local = &compiler->locals[i];
     if (identifiers_equal(name, &local->name)) {
       if (local->depth == -1) {
-        error(parser, "can't read local variable in its own initializer");
+        error(parser, "Can't read local variable in its own initializer.");
       }
       return i;
     }
@@ -327,7 +332,7 @@ static int add_upvalue(Parser *parser, Compiler *compiler, uint8_t index,
   }
 
   if (upvalue_count == UINT8_COUNT) {
-    error(parser, "too many closure variables in function");
+    error(parser, "Too many closure variables in function.");
     return 0;
   }
 
@@ -372,7 +377,7 @@ static void declare_variable(Parser *parser) {
     }
 
     if (identifiers_equal(name, &local->name)) {
-      error(parser, "variable already declared in this scope");
+      error(parser, "Already a variable with this name in this scope.");
     }
   }
   add_local(parser, *name);
@@ -404,12 +409,12 @@ static uint8_t argument_list(Parser *parser) {
     do {
       expression(parser);
       if (arg_count == UINT8_MAX) {
-        error(parser, "too many arguments");
+        error(parser, "Can't have more than 255 arguments.");
       }
       arg_count++;
     } while (match(parser, TOKEN_COMMA));
   }
-  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after arguments");
+  consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
   return arg_count;
 }
 
@@ -508,7 +513,7 @@ static void call(Parser *parser, bool UNUSED(can_assign)) {
 }
 
 static void dot(Parser *parser, bool can_assign) {
-  consume(parser, TOKEN_IDENTIFIER, "expect property name after '.'");
+  consume(parser, TOKEN_IDENTIFIER, "Expect property name after '.'.");
   uint8_t name = identifier_constant(parser, &parser->previous);
 
   if (can_assign && match(parser, TOKEN_EQUAL)) {
@@ -544,7 +549,7 @@ static void literal(Parser *parser, bool UNUSED(can_assign)) {
 
 static void group(Parser *parser, bool UNUSED(can_assign)) {
   expression(parser);
-  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after expression");
+  consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
 }
 
 static void number(Parser *parser, bool UNUSED(can_assign)) {
@@ -604,13 +609,13 @@ static Token synthetic_token(const char *text) {
 
 static void super_(Parser *parser, bool UNUSED(can_assign)) {
   if (parser->klass == NULL) {
-    error(parser, "cannot use 'super' outside of a class");
+    error(parser, "Can't use 'super' outside of a class.");
   } else if (!parser->klass->has_superclass) {
-    error(parser, "cannot use 'super' in a class with no superclass");
+    error(parser, "Can't use 'super' in a class with no superclass.");
   }
 
-  consume(parser, TOKEN_DOT, "expect '.' after 'super'");
-  consume(parser, TOKEN_IDENTIFIER, "expect superclass method name");
+  consume(parser, TOKEN_DOT, "Expect '.' after 'super'.");
+  consume(parser, TOKEN_IDENTIFIER, "Expect superclass method name.");
   uint8_t name = identifier_constant(parser, &parser->previous);
 
   named_variable(parser, synthetic_token("this"), false);
@@ -628,7 +633,7 @@ static void super_(Parser *parser, bool UNUSED(can_assign)) {
 
 static void this_(Parser *parser, bool UNUSED(can_assign)) {
   if (parser->klass == NULL) {
-    error(parser, "cannot use 'this' outside of a class");
+    error(parser, "Can't use 'this' outside of a class.");
     return;
   }
 
@@ -663,7 +668,7 @@ static void block(Parser *parser) {
     declaration(parser);
   }
 
-  consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after block");
+  consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
 static void function(Parser *parser, FunctionMode mode) {
@@ -679,20 +684,20 @@ static void function(Parser *parser, FunctionMode mode) {
 
   scope_begin(parser);
 
-  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after function name");
+  consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after function name.");
   if (!check(parser, TOKEN_RIGHT_PAREN)) {
     do {
       parser->compiler->function->arity++;
       if (parser->compiler->function->arity > UINT8_MAX) {
-        error_at_current(parser, "too many parameters");
+        error_at_current(parser, "Can't have more than 255 parameters.");
       }
 
-      uint8_t constant = parse_variable(parser, "expect parameter name");
+      uint8_t constant = parse_variable(parser, "Expect parameter name.");
       define_variable(parser, constant);
     } while (match(parser, TOKEN_COMMA));
   }
-  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after function parameters");
-  consume(parser, TOKEN_LEFT_BRACE, "expect '{' before function body");
+  consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+  consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before function body.");
   block(parser);
 
   // scope_end(parser) isn't necessary because all locals will get implicitly
@@ -707,7 +712,7 @@ static void function(Parser *parser, FunctionMode mode) {
 }
 
 static void decl_fun(Parser *parser) {
-  uint8_t global = parse_variable(parser, "expect function name");
+  uint8_t global = parse_variable(parser, "Expect function name.");
 
   // Allow the function's name to be used within its body to support recursion.
   mark_initialized(parser->compiler);
@@ -718,29 +723,29 @@ static void decl_fun(Parser *parser) {
 }
 
 static void decl_var(Parser *parser) {
-  uint8_t global = parse_variable(parser, "expect variable name");
+  uint8_t global = parse_variable(parser, "Expect variable name.");
 
   if (match(parser, TOKEN_EQUAL)) {
     expression(parser);
   } else {
     emit_byte(parser, OP_NIL);
   }
-  consume(parser, TOKEN_SEMICOLON, "expect ';' after variable declaration");
+  consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
 
   define_variable(parser, global);
 }
 
 static void stmt_expr(Parser *parser) {
   expression(parser);
-  consume(parser, TOKEN_SEMICOLON, "expect ';' after expression");
+  consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression.");
   emit_byte(parser, OP_POP);
 }
 
 static void stmt_if(Parser *parser) {
   // <cond>
-  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after 'if'");
+  consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'if'.");
   expression(parser);
-  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after condition");
+  consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
   // jump_false_peek else
   unsigned int then_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
@@ -769,25 +774,25 @@ static void stmt_if(Parser *parser) {
 
 static void stmt_print(Parser *parser) {
   expression(parser);
-  consume(parser, TOKEN_SEMICOLON, "expect ';' after value");
+  consume(parser, TOKEN_SEMICOLON, "Expect ';' after value.");
   emit_byte(parser, OP_PRINT);
 }
 
 static void stmt_return(Parser *parser) {
   if (parser->compiler->mode == MODE_SCRIPT) {
-    error(parser, "cannot return from top-level code");
+    error(parser, "Can't return from top-level code.");
   }
 
   if (match(parser, TOKEN_SEMICOLON)) {
     emit_return(parser);
   } else {
     if (parser->compiler->mode == MODE_INITIALIZER) {
-      error(parser, "cannot return a value from an initializer");
+      error(parser, "Can't return a value from an initializer.");
       // Continue compiling the expression anyway to let the parser re-sync.
     }
 
     expression(parser);
-    consume(parser, TOKEN_SEMICOLON, "expect ';' after return value");
+    consume(parser, TOKEN_SEMICOLON, "Expect ';' after return value.");
     emit_byte(parser, OP_RETURN);
   }
 }
@@ -796,9 +801,9 @@ static void stmt_while(Parser *parser) {
   // start:
   unsigned int loop_start = VEC_LEN(current_chunk(parser)->code);
   // <cond>
-  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after 'while'");
+  consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'while'.");
   expression(parser);
-  consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after condition");
+  consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
   // jump_false_peek exit
   unsigned int exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
@@ -817,7 +822,7 @@ static void stmt_while(Parser *parser) {
 static void stmt_for(Parser *parser) {
   scope_begin(parser);
 
-  consume(parser, TOKEN_LEFT_PAREN, "expect '(' after 'for'");
+  consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
 
   // <init>
   if (match(parser, TOKEN_SEMICOLON)) {
@@ -837,7 +842,7 @@ static void stmt_for(Parser *parser) {
   // <cond>
   if (!match(parser, TOKEN_SEMICOLON)) {
     expression(parser);
-    consume(parser, TOKEN_SEMICOLON, "expect ';' after for loop condition");
+    consume(parser, TOKEN_SEMICOLON, "Expect ';' after for loop condition.");
 
     // jump_false_peek exit
     exit_jump = emit_jump(parser, OP_JUMP_IF_FALSE);
@@ -858,7 +863,7 @@ static void stmt_for(Parser *parser) {
     // pop next
     emit_byte(parser, OP_POP);
 
-    consume(parser, TOKEN_RIGHT_PAREN, "expect ')' after for loop clauses");
+    consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after for loop clauses.");
 
     // jump start
     emit_loop(parser, loop_start);
@@ -909,7 +914,7 @@ static void synchronize(Parser *parser) {
 }
 
 static void method(Parser *parser) {
-  consume(parser, TOKEN_IDENTIFIER, "expect method name");
+  consume(parser, TOKEN_IDENTIFIER, "Expect method name.");
   uint8_t constant = identifier_constant(parser, &parser->previous);
 
   FunctionMode mode = MODE_METHOD;
@@ -924,7 +929,7 @@ static void method(Parser *parser) {
 }
 
 static void decl_class(Parser *parser) {
-  consume(parser, TOKEN_IDENTIFIER, "expect class name");
+  consume(parser, TOKEN_IDENTIFIER, "Expect class name.");
   Token class_name = parser->previous;
 
   uint8_t name_constant = identifier_constant(parser, &parser->previous);
@@ -939,11 +944,11 @@ static void decl_class(Parser *parser) {
   parser->klass = &klass;
 
   if (match(parser, TOKEN_LESS)) {
-    consume(parser, TOKEN_IDENTIFIER, "expect superclass name");
+    consume(parser, TOKEN_IDENTIFIER, "Expect superclass name.");
     variable(parser, false);
 
     if (identifiers_equal(&class_name, &parser->previous)) {
-      error(parser, "class cannot subclass itself");
+      error(parser, "A class can't inherit from itself.");
     }
 
     scope_begin(parser);
@@ -958,11 +963,11 @@ static void decl_class(Parser *parser) {
 
   named_variable(parser, class_name, false);
 
-  consume(parser, TOKEN_LEFT_BRACE, "expect '{' before class body");
+  consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before class body.");
   while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
     method(parser);
   }
-  consume(parser, TOKEN_RIGHT_BRACE, "expect '}' after class body");
+  consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after class body.");
   emit_byte(parser, OP_POP); // class
 
   if (parser->klass->has_superclass) {

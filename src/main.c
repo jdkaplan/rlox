@@ -70,7 +70,7 @@ void run_file(const char *path) {
   case INTERPRET_COMPILE_ERROR:
     exit(65);
   case INTERPRET_RUNTIME_ERROR:
-    exit(65);
+    exit(70);
   }
 
   vm_free(&vm);

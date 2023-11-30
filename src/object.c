@@ -152,7 +152,7 @@ void print_object(Value value) {
     break;
   }
   case O_CLASS: {
-    printf("<class %s>", AS_CLASS(value)->name->chars);
+    printf("%s", AS_CLASS(value)->name->chars);
     break;
   }
   case O_CLOSURE: {
@@ -164,7 +164,7 @@ void print_object(Value value) {
     break;
   }
   case O_INSTANCE: {
-    printf("<instance of %s>", AS_INSTANCE(value)->klass->name->chars);
+    printf("%s instance", AS_INSTANCE(value)->klass->name->chars);
     break;
   }
   case O_NATIVE: {

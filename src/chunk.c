@@ -26,10 +26,10 @@ void chunk_write(Gc gc, Chunk *chunk, uint8_t byte, int line) {
 
 uint8_t chunk_add_constant(Gc gc, Chunk *chunk, Value value) {
   unsigned int idx = VEC_LEN(chunk->constants);
-  if (idx == UINT8_MAX) {
-    printf("too many constants");
-    exit(2);
-  }
+  // if (idx == UINT8_MAX) {
+  //   printf("Too many constants in one chunk.");
+  //   exit(2);
+  // }
 
   // GC: Ensure `value` is reachable temporarily in case resizing the constants
   // array triggers garbage collection.
