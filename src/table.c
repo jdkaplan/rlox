@@ -58,6 +58,7 @@ static void resize(Gc gc, Table *table, uint32_t cap) {
     Entry *dest = find(entries, cap, entry->key);
     dest->key = entry->key;
     dest->value = entry->value;
+    table->size++;
   }
 
   FREE_ARRAY(gc, Entry, table->entries, table->cap);
