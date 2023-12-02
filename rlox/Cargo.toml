@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate_type = ["staticlib"]
 
+[features]
+stress_gc = []
+
 [dependencies]
 
 [build-dependencies]

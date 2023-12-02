@@ -8,4 +8,6 @@
 
 void hello(void);
 
+void *_reallocate(void *ptr, uintptr_t new_);
+
 #endif /* rlox_bindings_h */

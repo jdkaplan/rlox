@@ -7,6 +7,8 @@
 #include "table.h"
 #include "vm.h"
 
+#include "rlox.h"
+
 #ifdef DEBUG_LOG_GC
 #include "debug.h"
 #endif
@@ -212,19 +214,6 @@ static void collect_garbage(Gc gc) {
          before, after, gc.vm->next_gc);
   printf("-- gc end\n");
 #endif
-}
-
-void *_reallocate(void *ptr, size_t new) {
-  if (new == 0) {
-    free(ptr);
-    return NULL;
-  }
-
-  void *result = realloc(ptr, new);
-  if (result == NULL) {
-    exit(1);
-  }
-  return result;
 }
 
 void *reallocate(Gc gc, void *ptr, size_t old, size_t new) {
