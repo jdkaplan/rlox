@@ -1,13 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "compiler.h"
 #include "memory.h"
 #include "object.h"
 #include "table.h"
-#include "vm.h"
-
-#include "rlox.h"
 
 #ifdef DEBUG_LOG_GC
 #include "debug.h"

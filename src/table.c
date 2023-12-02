@@ -2,7 +2,6 @@
 #include <string.h>
 
 #include "memory.h"
-#include "object.h"
 #include "table.h"
 #include "value.h"
 
@@ -66,7 +65,7 @@ static void resize(Gc gc, Table *table, uint32_t cap) {
   table->cap = cap;
 }
 
-bool table_get(Table *table, ObjString *key, Value *value) {
+bool table_get(const Table *table, const ObjString *key, Value *value) {
   if (table->size == 0) {
     return false;
   }
@@ -97,7 +96,7 @@ bool table_set(Gc gc, Table *table, ObjString *key, Value value) {
   return is_new;
 }
 
-bool table_delete(Table *table, ObjString *key) {
+bool table_delete(Table *table, const ObjString *key) {
   if (table->size == 0) {
     return false;
   }

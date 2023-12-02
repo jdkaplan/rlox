@@ -4,24 +4,7 @@
 #include "common.h"
 #include "vec.h"
 
-typedef struct Obj Obj;
-typedef struct ObjString ObjString;
-
-typedef enum {
-  T_BOOL,
-  T_NIL,
-  T_NUMBER,
-  T_OBJ,
-} ValueType;
-
-typedef struct {
-  ValueType type;
-  union {
-    bool boolean;
-    double number;
-    Obj *obj;
-  } as;
-} Value;
+#include "rlox.h"
 
 #define IS_BOOL(value)   ((value).type == T_BOOL)
 #define IS_NIL(value)    ((value).type == T_NIL)
@@ -36,8 +19,6 @@ typedef struct {
 #define V_NIL           ((Value){T_NIL, {.number = 0}})
 #define V_NUMBER(value) ((Value){T_NUMBER, {.number = value}})
 #define V_OBJ(value)    ((Value){T_OBJ, {.obj = (Obj *)value}})
-
-typedef VEC(Value) Values;
 
 void print_value(Value value);
 bool value_eq(Value a, Value b);

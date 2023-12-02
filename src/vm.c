@@ -4,15 +4,14 @@
 #include <string.h>
 #include <time.h>
 
-#include "chunk.h"
 #include "compiler.h"
-#include "debug.h"
 #include "object.h"
 #include "table.h"
 #include "value.h"
 #include "vm.h"
 
-static Value clock_native(unsigned int UNUSED(argc), Value *UNUSED(args)) {
+static Value clock_native(unsigned int UNUSED(argc),
+                          const Value *UNUSED(args)) {
   return V_NUMBER((double)(clock()) / CLOCKS_PER_SEC);
 }
 
@@ -92,7 +91,7 @@ static void runtime_error(Vm *vm, const char *format, ...) {
 
   for (int i = (int)(vm->frame_count) - 1; i >= 0; i--) {
     CallFrame *frame = &vm->frames[i];
-    ObjFunction *fun = frame->closure->function;
+    const ObjFunction *fun = frame->closure->function;
 
     // The ip has already moved past the instruction that failed, so subtract
     // one extra.
@@ -186,8 +185,8 @@ static bool call_value(Vm *vm, Value callee, unsigned int argc) {
   return false;
 }
 
-static bool invoke_from_class(Vm *vm, ObjClass *klass, ObjString *name,
-                              unsigned int argc) {
+static bool invoke_from_class(Vm *vm, const ObjClass *klass,
+                              const ObjString *name, unsigned int argc) {
   Value method;
   if (!table_get(&klass->methods, name, &method)) {
     runtime_error(vm, "Undefined property '%s'.", name->chars);
@@ -215,7 +214,7 @@ static bool invoke(Vm *vm, ObjString *name, unsigned int argc) {
   return invoke_from_class(vm, instance->klass, name, argc);
 }
 
-static bool bind_method(Vm *vm, ObjClass *klass, ObjString *name) {
+static bool bind_method(Vm *vm, const ObjClass *klass, const ObjString *name) {
   Gc gc = {vm, NULL};
 
   Value method;

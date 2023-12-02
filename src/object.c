@@ -137,7 +137,7 @@ ObjString *str_clone(Gc gc, const char *chars, size_t length) {
   return allocate_string(gc, heap_chars, length, hash);
 }
 
-void print_function(ObjFunction *fun) {
+void print_function(const ObjFunction *fun) {
   if (fun->name == NULL) {
     printf("<script>");
   } else {
