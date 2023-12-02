@@ -9,8 +9,12 @@ help: ## List targets in this Makefile
 		| column --separator $$'\t' --table --table-wrap 2 --output-separator '    '
 
 ifeq ($(DEBUG),)
+PROFILE = debug
+RUSTFLAGS =
 CDEBUG =
 else
+PROFILE = release
+RUSTFLAGS = --release
 CDEBUG = -g3 \
 		 -DDEBUG_TRACE_EXECUTION \
 		 -DDEBUG_PRINT_CODE \
@@ -25,6 +29,7 @@ endif
 
 CC     = gcc
 CFLAGS = $(CDEBUG) $(CDEBUG_STRESS) \
+		 -I./rlox \
 		 -Wall \
 		 -Wextra \
 		 \
@@ -44,7 +49,7 @@ RM    = rm -f
 MKDIR = mkdir -p
 
 BUILD_DIR = ./build
-SOURCE_FILES = $(wildcard src/*.c) $(wildcard src/*.h)
+CLOX_FILES = $(wildcard src/*.c) $(wildcard src/*.h) rlox/target/$(PROFILE)/librlox.a
 
 WATCH = build
 
@@ -60,9 +65,17 @@ watch:
 	until fd . | entr -cdp $(MAKE) $(WATCH) ; do echo 'Edit a file or press Space to start.'; done
 
 .PHONY: clox
-clox: $(SOURCE_FILES)
+clox: $(CLOX_FILES)
 	$(MKDIR) "$(BUILD_DIR)"
-	$(CC) -o "$(BUILD_DIR)/clox" $(CFLAGS) $(SOURCE_FILES)
+	$(CC) -o "$(BUILD_DIR)/clox" $(CFLAGS) $(CLOX_FILES)
+
+RLOX_FILES = rlox/Cargo.toml rlox/Cargo.lock $(wildcard rlox/src/*.rs)
+
+.PHONY: rlox
+rlox: $(RLOX_FILES)
+	cd rlox && cargo build $(RUSTFLAGS)
+
+rlox/target/$(PROFILE)/librlox.a: rlox
 
 .PHONY: clean
 clean:

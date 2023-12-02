@@ -8,7 +8,11 @@
 #include "debug.h"
 #include "vm.h"
 
+#include "rlox.h"
+
 void repl(void) {
+  hello();
+
   Vm vm;
   vm_init(&vm);
 
