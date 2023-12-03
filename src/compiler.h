@@ -2,7 +2,6 @@
 #define clox_compiler_h
 
 #include "object.h"
-#include "scanner.h"
 #include "table.h"
 
 #include "rlox.h"

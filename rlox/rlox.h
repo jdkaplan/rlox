@@ -126,6 +126,19 @@ typedef enum ValueType {
   T_OBJ,
 } ValueType;
 
+typedef struct Scanner {
+  const char *start;
+  const char *current;
+  int line;
+} Scanner;
+
+typedef struct Token {
+  enum TokenType type;
+  const char *start;
+  int length;
+  int line;
+} Token;
+
 typedef struct Vec_u8 {
   unsigned int len;
   unsigned int cap;
@@ -213,13 +226,6 @@ typedef struct ClassCompiler {
   bool has_superclass;
 } ClassCompiler;
 
-typedef struct Token {
-  enum TokenType type;
-  const char *start;
-  int length;
-  int line;
-} Token;
-
 typedef struct Local {
   struct Token name;
   int depth;
@@ -300,12 +306,6 @@ typedef struct ObjNative {
   NativeFn fn;
 } ObjNative;
 
-typedef struct Scanner {
-  const char *start;
-  const char *current;
-  int line;
-} Scanner;
-
 typedef struct Parser {
   struct Token current;
   struct Token previous;
@@ -316,6 +316,12 @@ typedef struct Parser {
   bool panicking;
   struct Vm *vm;
 } Parser;
+
+void scanner_init(struct Scanner *scanner, const char *source);
+
+struct Token scanner_next(struct Scanner *scanner);
+
+void dbg_token(struct Token token);
 
 void hello(void);
 

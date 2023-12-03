@@ -2,6 +2,36 @@ use std::alloc::{dealloc, realloc, Layout};
 use std::ffi::{c_char, c_int, c_uint, c_void};
 use std::ptr;
 
+// The same as the println macro but only prints in debug builds.
+macro_rules! debugln {
+    ($($arg:tt)*) => {{
+        #[cfg(debug_assertions)]
+        ::std::println!($($arg)*);
+    }};
+}
+
+mod scanner;
+
+pub use scanner::{Scanner, Token, TokenType};
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn scanner_init(scanner: *mut Scanner, source: *const c_char) {
+    unsafe { scanner.as_mut().unwrap().init(source) }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn scanner_next(scanner: *mut Scanner) -> Token {
+    unsafe { scanner.as_mut().unwrap().next_token() }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn dbg_token(token: Token) {
+    debugln!("{:?}", token);
+}
+
 #[no_mangle]
 pub extern "C" fn hello() {
     println!("Hello from Rust!");
@@ -317,75 +347,6 @@ pub enum Opcode {
     OpClass,
     OpInherit,
     OpMethod,
-}
-
-#[repr(C)]
-pub struct Scanner {
-    start: *const c_char,
-    current: *const c_char,
-    line: c_int,
-}
-
-#[repr(C)]
-pub struct Token {
-    r#type: TokenType,
-    start: *const c_char,
-    length: c_int,
-    line: c_int,
-}
-
-/// cbindgen:rename-all=ScreamingSnakeCase
-#[repr(C)]
-pub enum TokenType {
-    // Single-character tokens
-    TokenLeftParen,
-    TokenRightParen,
-    TokenLeftBrace,
-    TokenRightBrace,
-    TokenComma,
-    TokenDot,
-    TokenMinus,
-    TokenPlus,
-    TokenSemicolon,
-    TokenSlash,
-    TokenStar,
-
-    // One- or two-character tokens
-    TokenBang,
-    TokenBangEqual,
-    TokenEqual,
-    TokenEqualEqual,
-    TokenGreater,
-    TokenGreaterEqual,
-    TokenLess,
-    TokenLessEqual,
-
-    // Literals
-    TokenIdentifier,
-    TokenString,
-    TokenNumber,
-
-    // Keywords
-    TokenAnd,
-    TokenClass,
-    TokenElse,
-    TokenFalse,
-    TokenFor,
-    TokenFun,
-    TokenIf,
-    TokenNil,
-    TokenOr,
-    TokenPrint,
-    TokenReturn,
-    TokenSuper,
-    TokenThis,
-    TokenTrue,
-    TokenVar,
-    TokenWhile,
-
-    // Synthetic tokens
-    TokenError,
-    TokenEof,
 }
 
 // TODO: This is a HashMap
