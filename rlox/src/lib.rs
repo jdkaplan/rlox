@@ -10,11 +10,15 @@ macro_rules! debugln {
 }
 
 mod alloc;
+mod chunk;
 mod object;
 mod scanner;
 mod value;
+mod vec;
+mod vm;
 
 pub use alloc::Gc;
+pub use chunk::Chunk;
 pub use object::{Obj, ObjType};
 pub use object::{
     ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
@@ -22,6 +26,8 @@ pub use object::{
 };
 pub use scanner::{Scanner, Token, TokenType};
 pub use value::{Value, ValueAs, ValueType};
+pub use vec::Vec;
+pub use vm::{CallFrame, Vm};
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
@@ -58,6 +64,30 @@ pub extern "C" fn value_eq(a: Value, b: Value) -> bool {
     a == b
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn chunk_init(chunk: *mut Chunk) {
+    unsafe { chunk.as_mut().unwrap() }.init();
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn chunk_free(gc: Gc, chunk: *mut Chunk) {
+    unsafe { chunk.as_mut().unwrap() }.free(gc);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn chunk_write(gc: Gc, chunk: *mut Chunk, byte: u8, line: c_int) {
+    unsafe { chunk.as_mut().unwrap() }.write(gc, byte, line);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn chunk_add_constant(gc: Gc, chunk: *mut Chunk, value: Value) -> u8 {
+    unsafe { chunk.as_mut().unwrap() }.add_constant(gc, value)
+}
+
 #[no_mangle]
 pub extern "C" fn hello() {
     println!("Hello from Rust!");
@@ -83,41 +113,6 @@ pub enum InterpretResult {
     InterpretOk,
     InterpretCompileError,
     InterpretRuntimeError,
-}
-
-#[repr(C)]
-pub struct Vm {
-    // TODO: This is a Vec
-    frames: [CallFrame; FRAMES_MAX],
-    frame_count: c_uint,
-
-    // TODO: This is a Vec
-    stack: [Value; STACK_MAX],
-    stack_top: *mut Value,
-
-    globals: Table,
-
-    strings: Table,
-    init_string: *mut ObjString,
-
-    open_upvalues: *mut ObjUpvalue,
-
-    objects: *mut Obj,
-
-    // TODO: This is a Vec
-    gc_pending_len: usize,
-    gc_pending_cap: usize,
-    gc_pending_stack: *mut *mut Obj,
-
-    bytes_allocated: usize,
-    next_gc: usize,
-}
-
-#[repr(C)]
-pub struct CallFrame {
-    closure: *mut ObjClosure,
-    ip: *mut u8,
-    slots: *mut Value,
 }
 
 #[repr(C)]
@@ -178,20 +173,6 @@ pub struct Local {
 pub struct Upvalue {
     index: u8,
     is_local: bool,
-}
-
-#[repr(C)]
-pub struct Chunk {
-    code: Bytecode,
-    constants: Values,
-    lines: Lines,
-}
-
-#[repr(C)]
-pub struct Vec<T> {
-    len: c_uint,
-    cap: c_uint,
-    items: *mut T,
 }
 
 #[repr(transparent)]

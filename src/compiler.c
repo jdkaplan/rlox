@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "chunk.h"
 #include "compiler.h"
 #include "object.h"
 

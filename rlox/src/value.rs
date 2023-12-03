@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::{object::print_object, Obj};
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Value {
     r#type: ValueType,
@@ -77,6 +78,7 @@ pub enum ValueType {
     TObj,
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub union ValueAs {
     boolean: bool,

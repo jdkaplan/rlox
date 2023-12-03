@@ -329,6 +329,14 @@ void println_value(struct Value value);
 
 bool value_eq(struct Value a, struct Value b);
 
+void chunk_init(struct Chunk *chunk);
+
+void chunk_free(struct Gc gc, struct Chunk *chunk);
+
+void chunk_write(struct Gc gc, struct Chunk *chunk, uint8_t byte, int line);
+
+uint8_t chunk_add_constant(struct Gc gc, struct Chunk *chunk, struct Value value);
+
 void hello(void);
 
 void *reallocate(struct Gc gc, void *ptr, uintptr_t old, uintptr_t new_);

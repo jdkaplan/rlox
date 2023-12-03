@@ -1,7 +1,6 @@
 #ifndef clox_object_h
 #define clox_object_h
 
-#include "chunk.h"
 #include "common.h"
 #include "table.h"
 #include "value.h"

@@ -1,13 +1,14 @@
 use std::alloc::{dealloc, realloc, Layout};
-use std::ffi::c_void;
+use std::mem;
 use std::ptr;
 
 use crate::{Compiler, Vm};
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Gc {
-    vm: *mut Vm,
-    compiler: *mut Compiler,
+    pub(crate) vm: *mut Vm,
+    pub(crate) compiler: *mut Compiler,
 }
 
 impl Gc {
@@ -30,7 +31,7 @@ impl Gc {
         );
     }
 
-    pub fn reallocate(&mut self, ptr: *mut c_void, old: usize, new: usize) -> *mut c_void {
+    pub fn reallocate<T>(&mut self, ptr: *mut T, old: usize, new: usize) -> *mut T {
         if self.vm.is_null() {
             return _reallocate(ptr, new);
         }
@@ -60,16 +61,22 @@ impl Gc {
 
         _reallocate(ptr, new)
     }
+
+    pub fn resize_array<T>(&mut self, ptr: *mut T, old_cap: usize, new_cap: usize) -> *mut T {
+        let old = mem::size_of::<T>() * old_cap;
+        let new = mem::size_of::<T>() * new_cap;
+        self.reallocate(ptr, old, new)
+    }
 }
 
-pub fn _reallocate(ptr: *mut c_void, new: usize) -> *mut c_void {
-    let layout = Layout::new::<c_void>();
+pub fn _reallocate<T>(ptr: *mut T, new: usize) -> *mut T {
+    let layout = Layout::new::<T>();
     if new == 0 {
         unsafe { dealloc(ptr as *mut u8, layout) };
         return ptr::null_mut();
     }
 
-    let ptr = unsafe { realloc(ptr as *mut u8, layout, new) as *mut c_void };
+    let ptr = unsafe { realloc(ptr as *mut u8, layout, new) as *mut T };
     if ptr.is_null() {
         panic!("could not allocate memory");
     }
