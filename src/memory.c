@@ -208,33 +208,3 @@ static void collect_garbage(Gc gc) {
   printf("-- gc end\n");
 #endif
 }
-
-void *reallocate(Gc gc, void *ptr, size_t old, size_t new) {
-  if (gc.vm == NULL) {
-    return _reallocate(ptr, new);
-  }
-
-  if (new >= old) {
-    gc.vm->bytes_allocated += new - old;
-  } else {
-    gc.vm->bytes_allocated -= old - new;
-  }
-
-  if (new > old) {
-#ifdef DEBUG_STRESS_GC
-#ifdef DEBUG_LOG_GC
-    printf("-- gc stress");
-#endif
-    collect_garbage(gc);
-#endif
-  }
-
-  if (gc.vm->bytes_allocated > gc.vm->next_gc) {
-#ifdef DEBUG_LOG_GC
-    printf("-- gc now: %zu > %zu\n", gc.vm->bytes_allocated, gc.vm->next_gc);
-#endif
-    collect_garbage(gc);
-  }
-
-  return _reallocate(ptr, new);
-}

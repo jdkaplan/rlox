@@ -221,33 +221,6 @@ typedef struct CallFrame {
   struct Value *slots;
 } CallFrame;
 
-typedef struct ClassCompiler {
-  struct ClassCompiler *enclosing;
-  bool has_superclass;
-} ClassCompiler;
-
-typedef struct Local {
-  struct Token name;
-  int depth;
-  bool is_captured;
-} Local;
-
-typedef struct Upvalue {
-  uint8_t index;
-  bool is_local;
-} Upvalue;
-
-typedef struct Compiler {
-  struct Compiler *enclosing;
-  struct ObjFunction *function;
-  enum FunctionMode mode;
-  struct Local locals[U8_COUNT];
-  int local_count;
-  int scope_depth;
-  struct Upvalue upvalues[U8_COUNT];
-  int upvalue_count;
-} Compiler;
-
 typedef struct Entry {
   struct ObjString *key;
   struct Value value;
@@ -276,10 +249,37 @@ typedef struct Vm {
   uintptr_t next_gc;
 } Vm;
 
+typedef struct Local {
+  struct Token name;
+  int depth;
+  bool is_captured;
+} Local;
+
+typedef struct Upvalue {
+  uint8_t index;
+  bool is_local;
+} Upvalue;
+
+typedef struct Compiler {
+  struct Compiler *enclosing;
+  struct ObjFunction *function;
+  enum FunctionMode mode;
+  struct Local locals[U8_COUNT];
+  int local_count;
+  int scope_depth;
+  struct Upvalue upvalues[U8_COUNT];
+  int upvalue_count;
+} Compiler;
+
 typedef struct Gc {
   struct Vm *vm;
   struct Compiler *compiler;
 } Gc;
+
+typedef struct ClassCompiler {
+  struct ClassCompiler *enclosing;
+  bool has_superclass;
+} ClassCompiler;
 
 typedef struct ObjBoundMethod {
   struct Obj obj;
@@ -330,6 +330,8 @@ void println_value(struct Value value);
 bool value_eq(struct Value a, struct Value b);
 
 void hello(void);
+
+void *reallocate(struct Gc gc, void *ptr, uintptr_t old, uintptr_t new_);
 
 void *_reallocate(void *ptr, uintptr_t new_);
 

@@ -18,6 +18,4 @@
 
 #define FREE(gc, type, ptr) reallocate(gc, ptr, sizeof(type), 0)
 
-void *reallocate(Gc gc, void *ptr, size_t old_size, size_t new_size);
-
 #endif

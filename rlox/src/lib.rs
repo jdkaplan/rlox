@@ -1,7 +1,5 @@
-use std::alloc::{dealloc, realloc, Layout};
 use std::ffi::{c_char, c_int, c_uint, c_void};
 use std::io::Write;
-use std::ptr;
 
 // The same as the println macro but only prints in debug builds.
 macro_rules! debugln {
@@ -11,10 +9,12 @@ macro_rules! debugln {
     }};
 }
 
+mod alloc;
 mod object;
 mod scanner;
 mod value;
 
+pub use alloc::Gc;
 pub use object::{Obj, ObjType};
 pub use object::{
     ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
@@ -64,18 +64,13 @@ pub extern "C" fn hello() {
 }
 
 #[no_mangle]
-pub extern "C" fn _reallocate(ptr: *mut c_void, new: usize) -> *mut c_void {
-    let layout = Layout::new::<c_void>();
-    if new == 0 {
-        unsafe { dealloc(ptr as *mut u8, layout) };
-        return ptr::null_mut();
-    }
+pub extern "C" fn reallocate(mut gc: Gc, ptr: *mut c_void, old: usize, new: usize) -> *mut c_void {
+    gc.reallocate(ptr, old, new)
+}
 
-    let ptr = unsafe { realloc(ptr as *mut u8, layout, new) as *mut c_void };
-    if ptr.is_null() {
-        panic!("could not allocate memory");
-    }
-    ptr
+#[no_mangle]
+pub extern "C" fn _reallocate(ptr: *mut c_void, new: usize) -> *mut c_void {
+    crate::alloc::_reallocate(ptr, new)
 }
 
 pub const U8_COUNT: usize = (u8::MAX as usize) + 1;
@@ -88,12 +83,6 @@ pub enum InterpretResult {
     InterpretOk,
     InterpretCompileError,
     InterpretRuntimeError,
-}
-
-#[repr(C)]
-pub struct Gc {
-    vm: *mut Vm,
-    compiler: *mut Compiler,
 }
 
 #[repr(C)]
