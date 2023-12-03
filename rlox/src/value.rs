@@ -23,6 +23,13 @@ impl Value {
             r#as: ValueAs { number: 0.0 },
         }
     }
+
+    pub(crate) fn obj(obj: *mut Obj) -> Self {
+        Self {
+            r#type: ValueType::TObj,
+            r#as: ValueAs { obj },
+        }
+    }
 }
 
 impl Value {

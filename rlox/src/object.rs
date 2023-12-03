@@ -1,8 +1,10 @@
 use std::ffi::{c_char, c_int, c_uint};
 use std::fmt;
+use std::num::Wrapping;
+use std::ptr;
 
 use crate::value::Value;
-use crate::{Chunk, Table};
+use crate::{Chunk, Gc, Table};
 
 #[repr(C)]
 pub struct Obj {
@@ -24,6 +26,38 @@ pub fn print_object(obj: *const Obj) {
     }
 }
 
+impl Obj {
+    pub(crate) fn free(obj: *const Obj, gc: &mut Gc) {
+        match unsafe { obj.as_ref().unwrap() }.r#type {
+            ObjType::OBoundMethod => gc.free(obj as *mut ObjBoundMethod),
+            ObjType::OClass => {
+                let klass = obj as *mut ObjClass;
+                unsafe { klass.as_mut().unwrap() }.methods.free(gc);
+                gc.free(klass)
+            }
+            ObjType::OClosure => gc.free(obj as *mut ObjClosure),
+            ObjType::OFunction => {
+                let function = obj as *mut ObjFunction;
+                unsafe { function.as_mut().unwrap() }.chunk.free(gc);
+                gc.free(function)
+            }
+            ObjType::OInstance => {
+                let instance = obj as *mut ObjInstance;
+                unsafe { instance.as_mut().unwrap() }.fields.free(gc);
+                gc.free(instance)
+            }
+            ObjType::ONative => gc.free(obj as *mut ObjNative),
+            ObjType::OString => {
+                let str = obj as *mut ObjString;
+                let str_ref = unsafe { str.as_mut().unwrap() };
+                gc.resize_array(str_ref.chars, str_ref.length + 1, 0);
+                gc.free(str)
+            }
+            ObjType::OUpvalue => gc.free(obj as *mut ObjUpvalue),
+        }
+    }
+}
+
 /// cbindgen:rename-all=ScreamingSnakeCase
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -38,11 +72,40 @@ pub enum ObjType {
     OUpvalue,
 }
 
+macro_rules! allocate_obj {
+    ($gc:expr, $T:ty, $obj_ty:expr) => {{
+        let null = ::std::ptr::null_mut();
+        let size = ::std::mem::size_of::<$T>();
+        let obj: *mut $T = $gc.reallocate(null, 0, size);
+        unsafe {
+            (*obj).obj.r#type = $obj_ty;
+            (*obj).obj.r#type = $obj_ty;
+        }
+
+        unsafe {
+            (*obj).obj.next = (*$gc.vm).objects;
+            (*$gc.vm).objects = obj as *mut Obj;
+        }
+        obj
+    }};
+}
+
 #[repr(C)]
 pub struct ObjBoundMethod {
     obj: Obj,
     receiver: Value,
     method: *mut ObjClosure,
+}
+
+impl ObjBoundMethod {
+    pub(crate) fn new(mut gc: Gc, receiver: Value, method: *mut ObjClosure) -> *mut Self {
+        let bound = allocate_obj!(gc, ObjBoundMethod, ObjType::OBoundMethod);
+        unsafe {
+            (*bound).receiver = receiver;
+            (*bound).method = method;
+        }
+        bound
+    }
 }
 
 pub fn print_bound_method(bound: *const ObjBoundMethod) {
@@ -55,6 +118,17 @@ pub struct ObjClass {
 
     name: *mut ObjString,
     methods: Table,
+}
+
+impl ObjClass {
+    pub(crate) fn new(mut gc: Gc, name: *mut ObjString) -> *mut ObjClass {
+        let klass = allocate_obj!(gc, ObjClass, ObjType::OClass);
+        unsafe {
+            (*klass).name = name;
+            (*klass).methods.init();
+        }
+        klass
+    }
 }
 
 pub fn print_class(klass: *const ObjClass) {
@@ -74,8 +148,60 @@ pub struct ObjClosure {
     upvalue_count: c_int,
 }
 
+impl ObjClosure {
+    pub(crate) fn new(mut gc: Gc, function: *mut ObjFunction) -> *mut ObjClosure {
+        // TODO: This is a Vec
+        let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
+        let upvalues: *mut *mut ObjUpvalue =
+            gc.resize_array(ptr::null_mut(), 0, upvalue_count as usize);
+        for i in 0..(upvalue_count as usize) {
+            unsafe { (*upvalues.add(i)) = ptr::null_mut() };
+        }
+
+        let closure = allocate_obj!(gc, ObjClosure, ObjType::OClosure);
+        unsafe {
+            (*closure).function = function;
+            (*closure).upvalues = upvalues;
+            (*closure).upvalue_count = upvalue_count;
+        }
+        closure
+    }
+}
+
 pub fn print_closure(closure: *const ObjClosure) {
     print_function(unsafe { closure.as_ref().unwrap() }.function);
+}
+
+#[repr(C)]
+pub struct ObjFunction {
+    obj: Obj,
+
+    arity: c_uint,
+    upvalue_count: c_int,
+    chunk: Chunk,
+    name: *mut ObjString,
+}
+
+impl ObjFunction {
+    pub(crate) fn new(mut gc: Gc) -> *mut ObjFunction {
+        let function = allocate_obj!(gc, ObjFunction, ObjType::OFunction);
+        unsafe {
+            (*function).arity = 0;
+            (*function).upvalue_count = 0;
+            (*function).name = ptr::null_mut();
+            (*function).chunk.init();
+        }
+        function
+    }
+}
+
+pub fn print_function(func: *const ObjFunction) {
+    let name = unsafe { func.as_ref().unwrap() }.name;
+    if name.is_null() {
+        print!("<script>");
+    } else {
+        print!("<fn {}>", unsafe { name.as_ref().unwrap() });
+    }
 }
 
 #[repr(C)]
@@ -83,6 +209,17 @@ pub struct ObjInstance {
     obj: Obj,
     klass: *mut ObjClass,
     fields: Table,
+}
+
+impl ObjInstance {
+    pub(crate) fn new(mut gc: Gc, klass: *mut ObjClass) -> *mut ObjInstance {
+        let instance = allocate_obj!(gc, ObjInstance, ObjType::OInstance);
+        unsafe {
+            (*instance).klass = klass;
+            (*instance).fields.init();
+        }
+        instance
+    }
 }
 
 pub fn print_instance(instance: *const ObjInstance) {
@@ -99,31 +236,20 @@ pub fn print_instance(instance: *const ObjInstance) {
     });
 }
 
-#[repr(C)]
-pub struct ObjFunction {
-    obj: Obj,
-
-    arity: c_uint,
-    upvalue_count: c_int,
-    chunk: Chunk,
-    name: *mut ObjString,
-}
-
-pub fn print_function(func: *const ObjFunction) {
-    let name = unsafe { func.as_ref().unwrap() }.name;
-    if name.is_null() {
-        print!("<script>");
-    } else {
-        print!("<fn {}>", unsafe { name.as_ref().unwrap() });
-    }
-}
-
-type NativeFn = extern "C" fn(argc: c_uint, argv: *const Value) -> Value;
+pub type NativeFn = extern "C" fn(argc: c_uint, argv: *const Value) -> Value;
 
 #[repr(C)]
 pub struct ObjNative {
     obj: Obj,
     r#fn: NativeFn,
+}
+
+impl ObjNative {
+    pub(crate) fn new(mut gc: Gc, func: NativeFn) -> *mut ObjNative {
+        let native = allocate_obj!(gc, ObjNative, ObjType::ONative);
+        unsafe { (*native).r#fn = func };
+        native
+    }
 }
 
 #[repr(C)]
@@ -141,12 +267,87 @@ impl fmt::Display for ObjString {
     }
 }
 
+impl ObjString {
+    pub(crate) fn allocate(mut gc: Gc, chars: *mut c_char, length: usize, hash: u32) -> *mut Self {
+        let str = allocate_obj!(gc, ObjString, ObjType::OString);
+        unsafe {
+            (*str).length = length;
+            (*str).chars = chars;
+            (*str).hash = hash;
+        }
+
+        // GC: Ensure `str` is reachable temporarily in case resizing the table
+        // triggers garbage collection.
+        let vm = unsafe { gc.vm.as_mut().unwrap() };
+        vm.push(Value::obj(str as *mut Obj));
+        vm.strings.set(gc, str, Value::nil());
+        vm.pop();
+
+        str
+    }
+
+    pub(crate) fn intern(mut gc: Gc, chars: *mut c_char, length: usize) -> *mut Self {
+        let hash = str_hash(chars, length);
+
+        let interned = unsafe { gc.vm.as_mut().unwrap() }
+            .strings
+            .find_string(chars, length, hash);
+        if !interned.is_null() {
+            // This takes ownership of `chars`, so free the memory if it's not going to
+            // be stored anywhere.
+            gc.resize_array(chars, length + 1, 0);
+            return interned;
+        }
+
+        Self::allocate(gc, chars, length, hash)
+    }
+
+    pub(crate) fn from_chars(mut gc: Gc, chars: *const c_char, length: usize) -> *mut Self {
+        let hash = str_hash(chars, length);
+
+        let interned = unsafe { gc.vm.as_mut().unwrap() }
+            .strings
+            .find_string(chars, length, hash);
+        if !interned.is_null() {
+            return interned;
+        }
+
+        let heap_chars = gc.resize_array(ptr::null_mut(), 0, length + 1);
+        unsafe {
+            ptr::copy_nonoverlapping(chars, heap_chars, length);
+            *heap_chars.add(length) = '\0' as c_char;
+        }
+        Self::allocate(gc, heap_chars, length, hash)
+    }
+}
+
+fn str_hash(chars: *const c_char, length: usize) -> u32 {
+    let mut hash = Wrapping(2166136261);
+    for i in 0..length {
+        hash ^= unsafe { *chars.add(i) as u32 };
+        hash *= 16777619;
+    }
+    hash.0
+}
+
 #[repr(C)]
 pub struct ObjUpvalue {
     obj: Obj,
     location: *mut Value,
     closed: Value,
     next: *mut ObjUpvalue,
+}
+
+impl ObjUpvalue {
+    pub(crate) fn new(mut gc: Gc, location: *mut Value) -> *mut ObjUpvalue {
+        let upvalue = allocate_obj!(gc, ObjUpvalue, ObjType::OUpvalue);
+        unsafe {
+            (*upvalue).location = location;
+            (*upvalue).closed = Value::nil();
+            (*upvalue).next = ptr::null_mut();
+        }
+        upvalue
+    }
 }
 
 unsafe fn string_from_c(chars: *const c_char, len: usize) -> String {

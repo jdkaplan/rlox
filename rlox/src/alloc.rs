@@ -2,7 +2,7 @@ use std::alloc::{dealloc, realloc, Layout};
 use std::mem;
 use std::ptr;
 
-use crate::{Compiler, Vm};
+use crate::{Compiler, Obj, Vm};
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -66,6 +66,18 @@ impl Gc {
         let old = mem::size_of::<T>() * old_cap;
         let new = mem::size_of::<T>() * new_cap;
         self.reallocate(ptr, old, new)
+    }
+
+    pub(crate) fn free_objects(&mut self, mut root: *mut Obj) {
+        while !root.is_null() {
+            let next = unsafe { (*root).next };
+            Obj::free(root, self);
+            root = next;
+        }
+    }
+
+    pub(crate) fn free<T>(&mut self, ptr: *mut T) {
+        self.reallocate(ptr, mem::size_of::<T>(), 0);
     }
 }
 

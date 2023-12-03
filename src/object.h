@@ -29,18 +29,4 @@ static inline bool is_obj_type(Value value, ObjType type) {
   return IS_OBJ(value) && OBJ_TYPE(value) == type;
 }
 
-ObjBoundMethod *bound_method_new(Gc gc, Value receiver, ObjClosure *method);
-ObjClass *class_new(Gc gc, ObjString *name);
-ObjClosure *closure_new(Gc gc, ObjFunction *function);
-ObjInstance *instance_new(Gc gc, ObjClass *klass);
-ObjFunction *function_new(Gc gc);
-ObjNative *native_new(Gc gc, NativeFn fn);
-ObjUpvalue *upvalue_new(Gc gc, Value *slot);
-
-ObjString *str_take(Gc gc, char *chars, size_t length);
-ObjString *str_clone(Gc gc, const char *chars, size_t length);
-
-void free_objects(Gc gc, Obj *root);
-void obj_free(Gc gc, Obj *obj);
-
 #endif

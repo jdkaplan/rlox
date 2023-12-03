@@ -18,7 +18,7 @@ impl Chunk {
         self.lines.0.init();
     }
 
-    pub fn free(&mut self, gc: Gc) {
+    pub fn free(&mut self, gc: &mut Gc) {
         self.code.0.free(gc);
         self.constants.0.free(gc);
         self.lines.0.free(gc);

@@ -20,7 +20,7 @@ mod vm;
 
 pub use alloc::Gc;
 pub use chunk::Chunk;
-pub use object::{Obj, ObjType};
+pub use object::{NativeFn, Obj, ObjType};
 pub use object::{
     ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
     ObjUpvalue,
@@ -74,8 +74,8 @@ pub extern "C" fn chunk_init(chunk: *mut Chunk) {
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
-pub extern "C" fn chunk_free(gc: Gc, chunk: *mut Chunk) {
-    unsafe { chunk.as_mut().unwrap() }.free(gc);
+pub extern "C" fn chunk_free(mut gc: Gc, chunk: *mut Chunk) {
+    unsafe { chunk.as_mut().unwrap() }.free(&mut gc);
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -98,8 +98,8 @@ pub extern "C" fn table_init(table: *mut Table) {
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
-pub extern "C" fn table_free(gc: Gc, table: *mut Table) {
-    unsafe { table.as_mut().unwrap() }.free(gc)
+pub extern "C" fn table_free(mut gc: Gc, table: *mut Table) {
+    unsafe { table.as_mut().unwrap() }.free(&mut gc)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -152,6 +152,76 @@ pub extern "C" fn table_find_string(
 #[no_mangle]
 pub extern "C" fn table_remove_unreachable(table: *mut Table) {
     unsafe { table.as_ref().unwrap() }.remove_unreachable()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn bound_method_new(
+    gc: Gc,
+    receiver: Value,
+    method: *mut ObjClosure,
+) -> *mut ObjBoundMethod {
+    ObjBoundMethod::new(gc, receiver, method)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn class_new(gc: Gc, name: *mut ObjString) -> *mut ObjClass {
+    ObjClass::new(gc, name)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn closure_new(gc: Gc, func: *mut ObjFunction) -> *mut ObjClosure {
+    ObjClosure::new(gc, func)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn instance_new(gc: Gc, klass: *mut ObjClass) -> *mut ObjInstance {
+    ObjInstance::new(gc, klass)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn function_new(gc: Gc) -> *mut ObjFunction {
+    ObjFunction::new(gc)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn native_new(gc: Gc, func: NativeFn) -> *mut ObjNative {
+    ObjNative::new(gc, func)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn upvalue_new(gc: Gc, slot: *mut Value) -> *mut ObjUpvalue {
+    ObjUpvalue::new(gc, slot)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn str_take(gc: Gc, chars: *mut c_char, length: usize) -> *mut ObjString {
+    ObjString::intern(gc, chars, length)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn str_clone(gc: Gc, chars: *const c_char, length: usize) -> *mut ObjString {
+    ObjString::from_chars(gc, chars, length)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn free_objects(mut gc: Gc, root: *mut Obj) {
+    gc.free_objects(root);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn obj_free(mut gc: Gc, obj: *mut Obj) {
+    Obj::free(obj, &mut gc);
 }
 
 #[no_mangle]

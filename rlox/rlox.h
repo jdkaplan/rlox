@@ -276,11 +276,6 @@ typedef struct Gc {
   struct Compiler *compiler;
 } Gc;
 
-typedef struct ClassCompiler {
-  struct ClassCompiler *enclosing;
-  bool has_superclass;
-} ClassCompiler;
-
 typedef struct ObjBoundMethod {
   struct Obj obj;
   struct Value receiver;
@@ -305,6 +300,11 @@ typedef struct ObjNative {
   struct Obj obj;
   NativeFn fn;
 } ObjNative;
+
+typedef struct ClassCompiler {
+  struct ClassCompiler *enclosing;
+  bool has_superclass;
+} ClassCompiler;
 
 typedef struct Parser {
   struct Token current;
@@ -355,6 +355,30 @@ struct ObjString *table_find_string(const struct Table *table,
                                     uint32_t hash);
 
 void table_remove_unreachable(struct Table *table);
+
+struct ObjBoundMethod *bound_method_new(struct Gc gc,
+                                        struct Value receiver,
+                                        struct ObjClosure *method);
+
+struct ObjClass *class_new(struct Gc gc, struct ObjString *name);
+
+struct ObjClosure *closure_new(struct Gc gc, struct ObjFunction *func);
+
+struct ObjInstance *instance_new(struct Gc gc, struct ObjClass *klass);
+
+struct ObjFunction *function_new(struct Gc gc);
+
+struct ObjNative *native_new(struct Gc gc, NativeFn func);
+
+struct ObjUpvalue *upvalue_new(struct Gc gc, struct Value *slot);
+
+struct ObjString *str_take(struct Gc gc, char *chars, uintptr_t length);
+
+struct ObjString *str_clone(struct Gc gc, const char *chars, uintptr_t length);
+
+void free_objects(struct Gc gc, struct Obj *root);
+
+void obj_free(struct Gc gc, struct Obj *obj);
 
 void hello(void);
 

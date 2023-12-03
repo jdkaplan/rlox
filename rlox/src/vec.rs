@@ -17,7 +17,7 @@ impl<T> Vec<T> {
         self.items = ptr::null_mut();
     }
 
-    pub(crate) fn free(&mut self, mut gc: Gc) {
+    pub(crate) fn free(&mut self, gc: &mut Gc) {
         gc.resize_array(self.items, self.cap as usize, 0);
         self.init();
     }
