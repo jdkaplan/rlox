@@ -3,7 +3,6 @@
 
 #include "memory.h"
 #include "object.h"
-#include "table.h"
 
 #ifdef DEBUG_LOG_GC
 #include "debug.h"

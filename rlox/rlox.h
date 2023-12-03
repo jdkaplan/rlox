@@ -228,7 +228,7 @@ typedef struct Entry {
 
 typedef struct Table {
   unsigned int size;
-  unsigned int cap;
+  uint32_t cap;
   struct Entry *entries;
 } Table;
 
@@ -336,6 +336,25 @@ void chunk_free(struct Gc gc, struct Chunk *chunk);
 void chunk_write(struct Gc gc, struct Chunk *chunk, uint8_t byte, int line);
 
 uint8_t chunk_add_constant(struct Gc gc, struct Chunk *chunk, struct Value value);
+
+void table_init(struct Table *table);
+
+void table_free(struct Gc gc, struct Table *table);
+
+bool table_get(const struct Table *table, const struct ObjString *key, struct Value *value);
+
+bool table_set(struct Gc gc, struct Table *table, const struct ObjString *key, struct Value value);
+
+bool table_delete(struct Table *table, const struct ObjString *key);
+
+void table_extend(struct Gc gc, struct Table *dest, const struct Table *src);
+
+struct ObjString *table_find_string(const struct Table *table,
+                                    const char *chars,
+                                    uintptr_t len,
+                                    uint32_t hash);
+
+void table_remove_unreachable(struct Table *table);
 
 void hello(void);
 

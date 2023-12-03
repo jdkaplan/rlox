@@ -6,9 +6,9 @@ use crate::{Chunk, Table};
 
 #[repr(C)]
 pub struct Obj {
-    r#type: ObjType,
-    is_marked: bool,
-    next: *mut Obj,
+    pub(crate) r#type: ObjType,
+    pub(crate) is_marked: bool,
+    pub(crate) next: *mut Obj,
 }
 
 pub fn print_object(obj: *const Obj) {
@@ -128,11 +128,11 @@ pub struct ObjNative {
 
 #[repr(C)]
 pub struct ObjString {
-    obj: Obj,
+    pub(crate) obj: Obj,
 
-    length: usize,
-    chars: *mut c_char,
-    hash: u32,
+    pub(crate) length: usize,
+    pub(crate) chars: *mut c_char,
+    pub(crate) hash: u32,
 }
 
 impl fmt::Display for ObjString {

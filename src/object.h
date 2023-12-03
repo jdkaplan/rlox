@@ -2,7 +2,6 @@
 #define clox_object_h
 
 #include "common.h"
-#include "table.h"
 #include "value.h"
 
 #include "rlox.h"

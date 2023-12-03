@@ -9,6 +9,28 @@ pub struct Value {
     r#as: ValueAs,
 }
 
+impl Value {
+    pub(crate) fn bool(boolean: bool) -> Self {
+        Self {
+            r#type: ValueType::TBool,
+            r#as: ValueAs { boolean },
+        }
+    }
+
+    pub(crate) fn nil() -> Self {
+        Self {
+            r#type: ValueType::TNil,
+            r#as: ValueAs { number: 0.0 },
+        }
+    }
+}
+
+impl Value {
+    pub(crate) fn is_nil(&self) -> bool {
+        self.r#type == ValueType::TNil
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.r#type {

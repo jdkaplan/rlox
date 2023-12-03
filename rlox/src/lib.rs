@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, c_uint, c_void};
+use std::ffi::{c_char, c_int, c_void};
 use std::io::Write;
 
 // The same as the println macro but only prints in debug builds.
@@ -13,6 +13,7 @@ mod alloc;
 mod chunk;
 mod object;
 mod scanner;
+mod table;
 mod value;
 mod vec;
 mod vm;
@@ -25,6 +26,7 @@ pub use object::{
     ObjUpvalue,
 };
 pub use scanner::{Scanner, Token, TokenType};
+pub use table::{Entry, Table};
 pub use value::{Value, ValueAs, ValueType};
 pub use vec::Vec;
 pub use vm::{CallFrame, Vm};
@@ -86,6 +88,70 @@ pub extern "C" fn chunk_write(gc: Gc, chunk: *mut Chunk, byte: u8, line: c_int) 
 #[no_mangle]
 pub extern "C" fn chunk_add_constant(gc: Gc, chunk: *mut Chunk, value: Value) -> u8 {
     unsafe { chunk.as_mut().unwrap() }.add_constant(gc, value)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_init(table: *mut Table) {
+    unsafe { table.as_mut().unwrap() }.init()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_free(gc: Gc, table: *mut Table) {
+    unsafe { table.as_mut().unwrap() }.free(gc)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_get(table: *const Table, key: *const ObjString, value: *mut Value) -> bool {
+    if let Some(v) = unsafe { table.as_ref().unwrap() }.get(key) {
+        unsafe { *value = v };
+        return true;
+    }
+    false
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_set(
+    gc: Gc,
+    table: *mut Table,
+    key: *const ObjString,
+    value: Value,
+) -> bool {
+    unsafe { table.as_mut().unwrap() }.set(gc, key, value)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_delete(table: *mut Table, key: *const ObjString) -> bool {
+    unsafe { table.as_mut().unwrap() }.delete(key)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_extend(gc: Gc, dest: *mut Table, src: *const Table) {
+    let dest = unsafe { dest.as_mut().unwrap() };
+    let src = unsafe { src.as_ref().unwrap() };
+    dest.extend(gc, src);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_find_string(
+    table: *const Table,
+    chars: *const c_char,
+    len: usize,
+    hash: u32,
+) -> *mut ObjString {
+    unsafe { table.as_ref().unwrap() }.find_string(chars, len, hash)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn table_remove_unreachable(table: *mut Table) {
+    unsafe { table.as_ref().unwrap() }.remove_unreachable()
 }
 
 #[no_mangle]
@@ -233,20 +299,6 @@ pub enum Opcode {
     OpClass,
     OpInherit,
     OpMethod,
-}
-
-// TODO: This is a HashMap
-#[repr(C)]
-pub struct Table {
-    size: c_uint,
-    cap: c_uint,
-    entries: *mut Entry,
-}
-
-#[repr(C)]
-pub struct Entry {
-    key: *mut ObjString,
-    value: Value,
 }
 
 #[no_mangle]
