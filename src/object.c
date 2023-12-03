@@ -137,50 +137,6 @@ ObjString *str_clone(Gc gc, const char *chars, size_t length) {
   return allocate_string(gc, heap_chars, length, hash);
 }
 
-void print_function(const ObjFunction *fun) {
-  if (fun->name == NULL) {
-    printf("<script>");
-  } else {
-    printf("<fn %s>", fun->name->chars);
-  }
-}
-
-void print_object(Value value) {
-  switch (OBJ_TYPE(value)) {
-  case O_BOUND_METHOD: {
-    print_function(AS_BOUND_METHOD(value)->method->function);
-    break;
-  }
-  case O_CLASS: {
-    printf("%s", AS_CLASS(value)->name->chars);
-    break;
-  }
-  case O_CLOSURE: {
-    print_function(AS_CLOSURE(value)->function);
-    break;
-  }
-  case O_FUNCTION: {
-    print_function(AS_FUNCTION(value));
-    break;
-  }
-  case O_INSTANCE: {
-    printf("%s instance", AS_INSTANCE(value)->klass->name->chars);
-    break;
-  }
-  case O_NATIVE: {
-    printf("<native fn>");
-    break;
-  }
-  case O_STRING: {
-    printf("%s", AS_CSTRING(value));
-    break;
-  }
-  case O_UPVALUE: {
-    printf("upvalue");
-  }
-  }
-}
-
 void free_objects(Gc gc, Obj *root) {
   while (root != NULL) {
     Obj *next = root->next;

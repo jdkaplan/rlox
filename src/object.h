@@ -41,7 +41,6 @@ ObjUpvalue *upvalue_new(Gc gc, Value *slot);
 
 ObjString *str_take(Gc gc, char *chars, size_t length);
 ObjString *str_clone(Gc gc, const char *chars, size_t length);
-void print_object(Value value);
 
 void free_objects(Gc gc, Obj *root);
 void obj_free(Gc gc, Obj *obj);

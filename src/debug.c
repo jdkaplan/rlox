@@ -8,8 +8,7 @@ void disassemble_chunk(Chunk *chunk, const char *name) {
 
   for (unsigned int i = 0; i < VEC_LEN(chunk->constants); i++) {
     printf("CONSTANT %4d = ", i);
-    print_value(VEC_GET(chunk->constants, i));
-    printf("\n");
+    println_value(VEC_GET(chunk->constants, i));
   }
 
   for (unsigned int offset = 0; offset < VEC_LEN(chunk->code);) {
@@ -26,8 +25,7 @@ static unsigned int constant_instruction(const char *name, Chunk *chunk,
                                          unsigned int offset) {
   uint8_t constant = VEC_GET(chunk->code, offset + 1);
   printf("%-16s %4d '", name, constant);
-  print_value(VEC_GET(chunk->constants, constant));
-  printf("'\n");
+  println_value(VEC_GET(chunk->constants, constant));
   return offset + 2;
 }
 
@@ -53,8 +51,7 @@ static unsigned int invoke_instruction(const char *name, Chunk *chunk,
   uint8_t constant = VEC_GET(chunk->code, offset + 1);
   uint8_t argc = VEC_GET(chunk->code, offset + 2);
   printf("%-16s (%d args) %4d ", name, argc, constant);
-  print_value(VEC_GET(chunk->constants, constant));
-  printf("\n");
+  println_value(VEC_GET(chunk->constants, constant));
   return offset + 3;
 }
 
@@ -149,8 +146,7 @@ unsigned int disassemble_instruction(Chunk *chunk, unsigned int offset) {
     offset++;
     uint8_t constant = VEC_GET(chunk->code, offset++);
     printf("%-16s %4d ", "OP_CLOSURE", constant);
-    print_value(VEC_GET(chunk->constants, constant));
-    printf("\n");
+    println_value(VEC_GET(chunk->constants, constant));
 
     ObjFunction *function = AS_FUNCTION(VEC_GET(chunk->constants, constant));
     for (int j = 0; j < function->upvalue_count; j++) {

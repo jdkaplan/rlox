@@ -21,8 +21,7 @@ static void gc_mark_obj(Gc gc, Obj *obj) {
 
 #ifdef DEBUG_LOG_GC
   printf("%p mark type=%d ", (void *)(obj), obj->type);
-  print_value(V_OBJ(obj));
-  printf("\n");
+  println_value(V_OBJ(obj));
 #endif
 
   obj->is_marked = true;
@@ -97,8 +96,7 @@ static void gc_mark_roots(Gc gc) {
 static void gc_expand_obj(Gc gc, Obj *obj) {
 #ifdef DEBUG_LOG_GC
   printf("%p expand type=%d ", (void *)(obj), obj->type);
-  print_value(V_OBJ(obj));
-  printf("\n");
+  println_value(V_OBJ(obj));
 #endif
 
   switch (obj->type) {
@@ -158,8 +156,7 @@ static void gc_sweep(Gc gc) {
     if (obj->is_marked) {
 #ifdef DEBUG_LOG_GC
       printf("%p keep type=%d ", (void *)(obj), obj->type);
-      print_value(V_OBJ(obj));
-      printf("\n");
+      println_value(V_OBJ(obj));
 #endif
       obj->is_marked = false;
 

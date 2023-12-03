@@ -139,14 +139,6 @@ typedef struct Token {
   int line;
 } Token;
 
-typedef struct Vec_u8 {
-  unsigned int len;
-  unsigned int cap;
-  uint8_t *items;
-} Vec_u8;
-
-typedef struct Vec_u8 Bytecode;
-
 typedef struct Obj {
   enum ObjType type;
   bool is_marked;
@@ -163,6 +155,14 @@ typedef struct Value {
   enum ValueType type;
   union ValueAs as;
 } Value;
+
+typedef struct Vec_u8 {
+  unsigned int len;
+  unsigned int cap;
+  uint8_t *items;
+} Vec_u8;
+
+typedef struct Vec_u8 Bytecode;
 
 typedef struct Vec_Value {
   unsigned int len;
@@ -322,6 +322,12 @@ void scanner_init(struct Scanner *scanner, const char *source);
 struct Token scanner_next(struct Scanner *scanner);
 
 void dbg_token(struct Token token);
+
+void print_value(struct Value value);
+
+void println_value(struct Value value);
+
+bool value_eq(struct Value a, struct Value b);
 
 void hello(void);
 

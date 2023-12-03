@@ -527,8 +527,7 @@ static InterpretResult vm_run(Vm *vm) {
     }
 
     case OP_PRINT: {
-      print_value(vm_pop(vm));
-      printf("\n");
+      println_value(vm_pop(vm));
       break;
     }
 

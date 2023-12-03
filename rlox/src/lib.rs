@@ -1,5 +1,6 @@
 use std::alloc::{dealloc, realloc, Layout};
 use std::ffi::{c_char, c_int, c_uint, c_void};
+use std::io::Write;
 use std::ptr;
 
 // The same as the println macro but only prints in debug builds.
@@ -10,9 +11,17 @@ macro_rules! debugln {
     }};
 }
 
+mod object;
 mod scanner;
+mod value;
 
+pub use object::{Obj, ObjType};
+pub use object::{
+    ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
+    ObjUpvalue,
+};
 pub use scanner::{Scanner, Token, TokenType};
+pub use value::{Value, ValueAs, ValueType};
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
@@ -30,6 +39,23 @@ pub extern "C" fn scanner_next(scanner: *mut Scanner) -> Token {
 #[no_mangle]
 pub extern "C" fn dbg_token(token: Token) {
     debugln!("{:?}", token);
+}
+
+#[no_mangle]
+pub extern "C" fn print_value(value: Value) {
+    Value::print(&value);
+    std::io::stdout().flush().unwrap();
+}
+
+#[no_mangle]
+pub extern "C" fn println_value(value: Value) {
+    Value::print(&value);
+    println!();
+}
+
+#[no_mangle]
+pub extern "C" fn value_eq(a: Value, b: Value) -> bool {
+    a == b
 }
 
 #[no_mangle]
@@ -103,116 +129,6 @@ pub struct CallFrame {
     closure: *mut ObjClosure,
     ip: *mut u8,
     slots: *mut Value,
-}
-
-#[repr(C)]
-pub struct Value {
-    r#type: ValueType,
-    r#as: ValueAs,
-}
-
-/// cbindgen:rename-all=ScreamingSnakeCase
-#[repr(C)]
-pub enum ValueType {
-    TBool,
-    TNil,
-    TNumber,
-    TObj,
-}
-
-#[repr(C)]
-pub union ValueAs {
-    boolean: bool,
-    number: f64,
-    obj: *mut Obj,
-}
-
-#[repr(C)]
-pub struct Obj {
-    r#type: ObjType,
-    is_marked: bool,
-    next: *mut Obj,
-}
-
-/// cbindgen:rename-all=ScreamingSnakeCase
-#[repr(C)]
-pub enum ObjType {
-    OBoundMethod,
-    OClass,
-    OClosure,
-    OFunction,
-    OInstance,
-    ONative,
-    OString,
-    OUpvalue,
-}
-
-#[repr(C)]
-pub struct ObjBoundMethod {
-    obj: Obj,
-    receiver: Value,
-    method: *mut ObjClosure,
-}
-
-#[repr(C)]
-pub struct ObjClass {
-    obj: Obj,
-
-    name: *mut ObjString,
-    methods: Table,
-}
-
-#[repr(C)]
-pub struct ObjClosure {
-    obj: Obj,
-
-    function: *mut ObjFunction,
-
-    // TODO: This is a Vec
-    upvalues: *mut *mut ObjUpvalue,
-    upvalue_count: c_int,
-}
-
-#[repr(C)]
-pub struct ObjInstance {
-    obj: Obj,
-    klass: *mut ObjClass,
-    fields: Table,
-}
-
-#[repr(C)]
-pub struct ObjFunction {
-    obj: Obj,
-
-    arity: c_uint,
-    upvalue_count: c_int,
-    chunk: Chunk,
-    name: *mut ObjString,
-}
-
-type NativeFn = extern "C" fn(argc: c_uint, argv: *const Value) -> Value;
-
-#[repr(C)]
-pub struct ObjNative {
-    obj: Obj,
-    r#fn: NativeFn,
-}
-
-#[repr(C)]
-pub struct ObjString {
-    obj: Obj,
-
-    length: usize,
-    chars: *mut c_char,
-    hash: u32,
-}
-
-#[repr(C)]
-pub struct ObjUpvalue {
-    obj: Obj,
-    location: *mut Value,
-    closed: Value,
-    next: *mut ObjUpvalue,
 }
 
 #[repr(C)]

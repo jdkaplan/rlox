@@ -20,7 +20,4 @@
 #define V_NUMBER(value) ((Value){T_NUMBER, {.number = value}})
 #define V_OBJ(value)    ((Value){T_OBJ, {.obj = (Obj *)value}})
 
-void print_value(Value value);
-bool value_eq(Value a, Value b);
-
 #endif
