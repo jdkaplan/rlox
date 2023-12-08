@@ -9,12 +9,12 @@ help: ## List targets in this Makefile
 		| column --separator $$'\t' --table --table-wrap 2 --output-separator '    '
 
 ifeq ($(DEBUG),)
-PROFILE = debug
-RUSTFLAGS =
-CDEBUG =
-else
 PROFILE = release
 RUSTFLAGS = --release
+CDEBUG =
+else
+PROFILE = debug
+RUSTFLAGS =
 CDEBUG = -g3 \
 		 -DDEBUG_TRACE_EXECUTION \
 		 -DDEBUG_PRINT_CODE \

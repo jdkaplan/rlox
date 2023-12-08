@@ -1,5 +1,6 @@
-use std::ffi::{c_char, c_int, c_void};
+use std::ffi::{c_char, c_int, c_uint, c_void, CStr};
 use std::io::Write;
+use std::time::Duration;
 
 // The same as the println macro but only prints in debug builds.
 macro_rules! debugln {
@@ -11,6 +12,7 @@ macro_rules! debugln {
 
 mod alloc;
 mod chunk;
+mod compiler;
 mod object;
 mod scanner;
 mod table;
@@ -19,7 +21,8 @@ mod vec;
 mod vm;
 
 pub use alloc::Gc;
-pub use chunk::Chunk;
+pub use chunk::{Bytecode, Chunk, Lines, Opcode, Values};
+pub use compiler::{ClassCompiler, Compiler, FunctionMode, Local, Parser, Upvalue};
 pub use object::{NativeFn, Obj, ObjType};
 pub use object::{
     ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative, ObjString,
@@ -81,7 +84,7 @@ pub extern "C" fn chunk_free(mut gc: Gc, chunk: *mut Chunk) {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn chunk_write(gc: Gc, chunk: *mut Chunk, byte: u8, line: c_int) {
-    unsafe { chunk.as_mut().unwrap() }.write(gc, byte, line);
+    unsafe { chunk.as_mut().unwrap() }.write_byte(gc, byte, line);
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -203,13 +206,13 @@ pub extern "C" fn upvalue_new(gc: Gc, slot: *mut Value) -> *mut ObjUpvalue {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn str_take(gc: Gc, chars: *mut c_char, length: usize) -> *mut ObjString {
-    ObjString::intern(gc, chars, length)
+    ObjString::from_owned(gc, chars, length)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn str_clone(gc: Gc, chars: *const c_char, length: usize) -> *mut ObjString {
-    ObjString::from_chars(gc, chars, length)
+    ObjString::from_borrowed(gc, chars, length)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -224,9 +227,570 @@ pub extern "C" fn obj_free(mut gc: Gc, obj: *mut Obj) {
     Obj::free(obj, &mut gc);
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_init(vm: *mut Vm) {
+    unsafe { vm.as_mut().unwrap() }.init();
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_free(vm: *mut Vm) {
+    unsafe { vm.as_mut().unwrap() }.free();
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_interpret(vm: *mut Vm, source: *const c_char) -> InterpretResult {
+    let vm = unsafe { vm.as_mut().unwrap() };
+
+    let gc = Gc::new(std::ptr::null_mut(), vm);
+
+    let function = crate::compiler::compile(vm, source);
+    if function.is_null() {
+        return InterpretResult::InterpretCompileError;
+    }
+
+    // GC: Temporarily make the function reachable.
+    let closure = {
+        vm.push(Value::obj(function as *mut Obj));
+        let closure = ObjClosure::new(gc, function);
+        vm.pop();
+        closure
+    };
+
+    vm.push(Value::obj(closure as *mut Obj));
+    vm.call(closure, 0);
+
+    match vm.run() {
+        Ok(_) => InterpretResult::InterpretOk,
+        Err(_) => InterpretResult::InterpretRuntimeError,
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_push(vm: *mut Vm, value: Value) {
+    unsafe { vm.as_mut().unwrap() }.push(value);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_pop(vm: *mut Vm) -> Value {
+    unsafe { vm.as_mut().unwrap() }.pop()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn clock_native(_argc: c_uint, _argv: *const Value) -> Value {
+    Value::number(clock().as_secs_f64())
+}
+
+fn clock() -> Duration {
+    let tp = unsafe {
+        let mut tp = std::mem::MaybeUninit::uninit();
+        if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, tp.as_mut_ptr()) != 0 {
+            panic!("clock: {}", std::io::Error::last_os_error());
+        }
+        tp.assume_init()
+    };
+
+    Duration::new(tp.tv_sec as u64, tp.tv_nsec as u32)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn compile(vm: *mut Vm, source: *const c_char) -> *mut ObjFunction {
+    crate::compiler::compile(unsafe { vm.as_mut().unwrap() }, source)
+}
+
 #[no_mangle]
 pub extern "C" fn hello() {
     println!("Hello from Rust!");
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn advance(parser: *mut Parser) {
+    unsafe { parser.as_mut().unwrap() }.advance()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn r#match(parser: *mut Parser, ty: TokenType) -> bool {
+    unsafe { parser.as_mut().unwrap() }.match_(ty)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn number(parser: *mut Parser, can_assign: bool) {
+    compiler::number(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn literal(parser: *mut Parser, can_assign: bool) {
+    compiler::literal(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn string(parser: *mut Parser, can_assign: bool) {
+    compiler::string(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn this_(parser: *mut Parser, can_assign: bool) {
+    compiler::this_(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn super_(parser: *mut Parser, can_assign: bool) {
+    compiler::super_(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn group(parser: *mut Parser, can_assign: bool) {
+    compiler::group(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn call(parser: *mut Parser, can_assign: bool) {
+    compiler::call(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn unary(parser: *mut Parser, can_assign: bool) {
+    compiler::unary(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn and_(parser: *mut Parser, can_assign: bool) {
+    compiler::and_(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn or_(parser: *mut Parser, can_assign: bool) {
+    compiler::or_(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn dot(parser: *mut Parser, can_assign: bool) {
+    compiler::dot(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn variable(parser: *mut Parser, can_assign: bool) {
+    compiler::variable(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn binary(parser: *mut Parser, can_assign: bool) {
+    compiler::binary(unsafe { parser.as_mut().unwrap() }, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn expression(parser: *mut Parser) {
+    Parser::expression(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn named_variable(parser: *mut Parser, name: Token, can_assign: bool) {
+    Parser::named_variable(unsafe { parser.as_mut().unwrap() }, &name, can_assign)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn define_variable(parser: *mut Parser, global: u8) {
+    Parser::define_variable(unsafe { parser.as_mut().unwrap() }, global)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn declare_variable(parser: *mut Parser) {
+    Parser::declare_variable(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn function(parser: *mut Parser, mode: FunctionMode) {
+    Parser::function(unsafe { parser.as_mut().unwrap() }, mode)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn statement(parser: *mut Parser) {
+    Parser::statement(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn add_upvalue(
+    parser: *mut Parser,
+    compiler: *mut Compiler,
+    index: u8,
+    is_local: bool,
+) -> c_int {
+    Parser::add_upvalue(
+        unsafe { parser.as_mut().unwrap() },
+        unsafe { compiler.as_mut().unwrap() },
+        index,
+        is_local,
+    )
+    .unwrap_or_default()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn resolve_local(
+    parser: *mut Parser,
+    compiler: *mut Compiler,
+    name: Token,
+) -> c_int {
+    Parser::resolve_local(
+        unsafe { parser.as_mut().unwrap() },
+        unsafe { compiler.as_mut().unwrap() },
+        &name,
+    )
+    .unwrap_or(-1)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn identifiers_equal(a: *const Token, b: *const Token) -> bool {
+    let a = unsafe { a.as_ref().unwrap() };
+    let b = unsafe { b.as_ref().unwrap() };
+    compiler::identifiers_equal(a, b)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn identifier_constant(parser: *mut Parser, name: *const Token) -> u8 {
+    let parser = unsafe { parser.as_mut().unwrap() };
+    let name = unsafe { name.as_ref().unwrap() };
+    Parser::identifier_constant(parser, name)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn add_local(parser: *mut Parser, name: Token) {
+    Parser::add_local(unsafe { parser.as_mut().unwrap() }, name)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn mark_initialized(compiler: *mut Compiler) {
+    Compiler::mark_initialized(unsafe { compiler.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn make_constant(parser: *mut Parser, value: Value) -> u8 {
+    Parser::make_constant(unsafe { parser.as_mut().unwrap() }, value)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn emit_return(parser: *mut Parser) {
+    Parser::emit_return(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn patch_jump(parser: *mut Parser, offset: c_uint) {
+    Parser::patch_jump(unsafe { parser.as_mut().unwrap() }, offset)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn emit_jump(parser: *mut Parser, op: Opcode) -> c_uint {
+    Parser::emit_jump(unsafe { parser.as_mut().unwrap() }, op)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn emit_loop(parser: *mut Parser, start: c_uint) {
+    Parser::emit_loop(unsafe { parser.as_mut().unwrap() }, start)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn emit_bytes(parser: *mut Parser, b1: u8, b2: u8) {
+    Parser::emit_bytes(unsafe { parser.as_mut().unwrap() }, b1, b2)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn emit_byte(parser: *mut Parser, b: u8) {
+    Parser::emit_byte(unsafe { parser.as_mut().unwrap() }, b)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn check(parser: *mut Parser, ty: TokenType) -> bool {
+    Parser::check(unsafe { parser.as_mut().unwrap() }, ty)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn consume(parser: *mut Parser, ty: TokenType, msg: *const c_char) {
+    Parser::consume(unsafe { parser.as_mut().unwrap() }, ty, unsafe {
+        CStr::from_ptr(msg).to_str().unwrap()
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn scope_begin(parser: *mut Parser) {
+    Parser::scope_begin(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn scope_end(parser: *mut Parser) {
+    Parser::scope_end(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn stmt_if(parser: *mut Parser) {
+    Parser::stmt_if(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn stmt_return(parser: *mut Parser) {
+    Parser::stmt_return(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn stmt_expr(parser: *mut Parser) {
+    Parser::stmt_expr(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn stmt_print(parser: *mut Parser) {
+    Parser::stmt_print(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn parse_variable(parser: *mut Parser, msg: *const c_char) -> u8 {
+    Parser::parse_variable(unsafe { parser.as_mut().unwrap() }, unsafe {
+        CStr::from_ptr(msg).to_str().unwrap()
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn current_chunk(parser: *mut Parser) -> *mut Chunk {
+    Parser::current_chunk(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn synchronize(parser: *mut Parser) {
+    Parser::synchronize(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn decl_var(parser: *mut Parser) {
+    Parser::decl_var(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn decl_class(parser: *mut Parser) {
+    Parser::decl_class(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn declaration(parser: *mut Parser) {
+    Parser::declaration(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn method(parser: *mut Parser) {
+    Parser::method(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn block(parser: *mut Parser) {
+    Parser::block(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn stmt_while(parser: *mut Parser) {
+    Parser::stmt_while(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn stmt_for(parser: *mut Parser) {
+    Parser::stmt_for(unsafe { parser.as_mut().unwrap() })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn error_at_current(parser: *mut Parser, msg: *const c_char) {
+    Parser::error_at_current(unsafe { parser.as_mut().unwrap() }, unsafe {
+        CStr::from_ptr(msg).to_str().unwrap()
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn error(parser: *mut Parser, msg: *const c_char) {
+    Parser::error(unsafe { parser.as_mut().unwrap() }, unsafe {
+        CStr::from_ptr(msg).to_str().unwrap()
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn parser_init(parser: *mut Parser, scanner: *mut Scanner, vm: *mut Vm) {
+    unsafe { parser.as_mut().unwrap() }.init(scanner, vm)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn compiler_init(parser: *mut Parser, compiler: *mut Compiler, mode: FunctionMode) {
+    unsafe { parser.as_mut().unwrap() }.compiler_init(compiler, mode)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn end_compiler(parser: *mut Parser) -> *mut ObjFunction {
+    unsafe { parser.as_mut().unwrap() }.end_compiler()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_peek(vm: *mut Vm, offset: c_uint) -> Value {
+    unsafe { vm.as_mut().unwrap() }.peek(offset)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_reset_stack(vm: *mut Vm) {
+    unsafe { vm.as_mut().unwrap() }.reset_stack();
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_print_stack_trace(vm: *mut Vm) {
+    unsafe { vm.as_mut().unwrap() }.eprint_stack_trace();
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_call(vm: *mut Vm, closure: *mut ObjClosure, argc: c_uint) -> bool {
+    unsafe { vm.as_mut().unwrap() }.call(closure, argc)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_call_value(vm: *mut Vm, callee: Value, argc: c_uint) -> bool {
+    unsafe { vm.as_mut().unwrap() }.call_value(callee, argc)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_invoke_from_class(
+    vm: *mut Vm,
+    klass: *const ObjClass,
+    name: *const ObjString,
+    argc: c_uint,
+) -> bool {
+    unsafe { vm.as_mut().unwrap() }.invoke_from_class(klass, name, argc)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_invoke(vm: *mut Vm, name: *const ObjString, argc: c_uint) -> bool {
+    unsafe { vm.as_mut().unwrap() }.invoke(name, argc)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_bind_method(
+    vm: *mut Vm,
+    klass: *const ObjClass,
+    name: *const ObjString,
+) -> bool {
+    unsafe { vm.as_mut().unwrap() }.bind_method(klass, name)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_define_method(vm: *mut Vm, name: *mut ObjString) {
+    unsafe { vm.as_mut().unwrap() }.define_method(name);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_capture_upvalue(vm: *mut Vm, local: *mut Value) -> *mut ObjUpvalue {
+    unsafe { vm.as_mut().unwrap() }.capture_upvalue(local)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_close_upvalues(vm: *mut Vm, last: *mut Value) {
+    unsafe { vm.as_mut().unwrap() }.close_upvalues(last);
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn is_falsey(value: Value) -> bool {
+    value.is_falsey()
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn concatenate(
+    mut gc: Gc,
+    a: *const ObjString,
+    b: *const ObjString,
+) -> *mut ObjString {
+    let length = unsafe { &*a }.length + unsafe { &*b }.length;
+    let chars = gc.resize_array(std::ptr::null_mut(), 0, length + 1);
+
+    unsafe {
+        std::ptr::copy_nonoverlapping((*a).chars, chars, (*a).length);
+        std::ptr::copy_nonoverlapping((*b).chars, chars.add((*a).length), (*b).length);
+        *chars.add(length) = '\0' as c_char;
+    }
+
+    str_take(gc, chars, length)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn vm_run(vm: *mut Vm) -> InterpretResult {
+    let res = unsafe { vm.as_mut().unwrap() }.run();
+    match res {
+        Ok(_) => InterpretResult::InterpretOk,
+        Err(_) => InterpretResult::InterpretRuntimeError,
+    }
 }
 
 #[no_mangle]
@@ -249,126 +813,6 @@ pub enum InterpretResult {
     InterpretOk,
     InterpretCompileError,
     InterpretRuntimeError,
-}
-
-#[repr(C)]
-pub struct Parser {
-    current: Token,
-    previous: Token,
-
-    scanner: *mut Scanner,
-    compiler: *mut Compiler,
-    klass: *mut ClassCompiler,
-
-    had_error: bool,
-    panicking: bool,
-
-    vm: *mut Vm,
-}
-
-#[repr(C)]
-pub struct Compiler {
-    enclosing: *mut Compiler,
-    function: *mut ObjFunction,
-    mode: FunctionMode,
-
-    // TODO: This is a Vec
-    locals: [Local; U8_COUNT],
-    local_count: c_int,
-
-    scope_depth: c_int,
-
-    // TODO: This is a Vec
-    upvalues: [Upvalue; U8_COUNT],
-    upvalue_count: c_int,
-}
-
-/// cbindgen:rename-all=ScreamingSnakeCase
-#[repr(C)]
-pub enum FunctionMode {
-    ModeFunction,
-    ModeInitializer,
-    ModeMethod,
-    ModeScript,
-}
-
-#[repr(C)]
-pub struct ClassCompiler {
-    enclosing: *mut ClassCompiler,
-    has_superclass: bool,
-}
-
-#[repr(C)]
-pub struct Local {
-    name: Token,
-    depth: c_int,
-    is_captured: bool,
-}
-
-#[repr(C)]
-pub struct Upvalue {
-    index: u8,
-    is_local: bool,
-}
-
-#[repr(transparent)]
-pub struct Bytecode(Vec<u8>);
-
-#[repr(transparent)]
-pub struct Lines(Vec<c_int>);
-
-#[repr(transparent)]
-pub struct Values(Vec<Value>);
-
-/// cbindgen:rename-all=ScreamingSnakeCase
-#[repr(C)]
-pub enum Opcode {
-    OpConstant,
-
-    OpNil,
-    OpTrue,
-    OpFalse,
-
-    OpPop,
-
-    OpGetLocal,
-    OpSetLocal,
-    OpDefineGlobal,
-    OpGetGlobal,
-    OpSetGlobal,
-    OpGetUpvalue,
-    OpSetUpvalue,
-    OpGetProperty,
-    OpSetProperty,
-    OpGetSuper,
-
-    OpNot,
-    OpEqual,
-    OpGreater,
-    OpLess,
-    // TODO: The other three _are_ needed to handle NaN properly.
-    OpNeg,
-    OpAdd,
-    OpSub,
-    OpMul,
-    OpDiv,
-
-    OpPrint,
-
-    OpJump,
-    OpJumpIfFalse,
-    OpLoop,
-
-    OpCall,
-    OpInvoke,
-    OpSuperInvoke,
-    OpClosure,
-    OpCloseUpvalue,
-    OpReturn,
-
-    OpClass,
-    OpInherit,
-    OpMethod,
 }
 
 #[no_mangle]

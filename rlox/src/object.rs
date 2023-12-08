@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, c_uint};
+use std::ffi::{c_char, c_int, c_uint, CStr};
 use std::fmt;
 use std::num::Wrapping;
 use std::ptr;
@@ -59,7 +59,7 @@ impl Obj {
 }
 
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ObjType {
     OBoundMethod,
@@ -92,9 +92,9 @@ macro_rules! allocate_obj {
 
 #[repr(C)]
 pub struct ObjBoundMethod {
-    obj: Obj,
-    receiver: Value,
-    method: *mut ObjClosure,
+    pub(crate) obj: Obj,
+    pub(crate) receiver: Value,
+    pub(crate) method: *mut ObjClosure,
 }
 
 impl ObjBoundMethod {
@@ -114,10 +114,10 @@ pub fn print_bound_method(bound: *const ObjBoundMethod) {
 
 #[repr(C)]
 pub struct ObjClass {
-    obj: Obj,
+    pub(crate) obj: Obj,
 
-    name: *mut ObjString,
-    methods: Table,
+    pub(crate) name: *mut ObjString,
+    pub(crate) methods: Table,
 }
 
 impl ObjClass {
@@ -139,13 +139,13 @@ pub fn print_class(klass: *const ObjClass) {
 
 #[repr(C)]
 pub struct ObjClosure {
-    obj: Obj,
+    pub(crate) obj: Obj,
 
-    function: *mut ObjFunction,
+    pub(crate) function: *mut ObjFunction,
 
     // TODO: This is a Vec
-    upvalues: *mut *mut ObjUpvalue,
-    upvalue_count: c_int,
+    pub(crate) upvalues: *mut *mut ObjUpvalue,
+    pub(crate) upvalue_count: c_int,
 }
 
 impl ObjClosure {
@@ -174,12 +174,12 @@ pub fn print_closure(closure: *const ObjClosure) {
 
 #[repr(C)]
 pub struct ObjFunction {
-    obj: Obj,
+    pub(crate) obj: Obj,
 
-    arity: c_uint,
-    upvalue_count: c_int,
-    chunk: Chunk,
-    name: *mut ObjString,
+    pub(crate) arity: c_uint,
+    pub(crate) upvalue_count: c_int,
+    pub(crate) chunk: Chunk,
+    pub(crate) name: *mut ObjString,
 }
 
 impl ObjFunction {
@@ -192,6 +192,15 @@ impl ObjFunction {
             (*function).chunk.init();
         }
         function
+    }
+
+    pub(crate) fn name(&self) -> String {
+        let name = self.name;
+        if name.is_null() {
+            String::from("script")
+        } else {
+            format!("{}", unsafe { name.as_ref().unwrap() })
+        }
     }
 }
 
@@ -206,9 +215,9 @@ pub fn print_function(func: *const ObjFunction) {
 
 #[repr(C)]
 pub struct ObjInstance {
-    obj: Obj,
-    klass: *mut ObjClass,
-    fields: Table,
+    pub(crate) obj: Obj,
+    pub(crate) klass: *mut ObjClass,
+    pub(crate) fields: Table,
 }
 
 impl ObjInstance {
@@ -240,8 +249,8 @@ pub type NativeFn = extern "C" fn(argc: c_uint, argv: *const Value) -> Value;
 
 #[repr(C)]
 pub struct ObjNative {
-    obj: Obj,
-    r#fn: NativeFn,
+    pub(crate) obj: Obj,
+    pub(crate) r#fn: NativeFn,
 }
 
 impl ObjNative {
@@ -286,7 +295,7 @@ impl ObjString {
         str
     }
 
-    pub(crate) fn intern(mut gc: Gc, chars: *mut c_char, length: usize) -> *mut Self {
+    pub(crate) fn from_owned(mut gc: Gc, chars: *mut c_char, length: usize) -> *mut Self {
         let hash = str_hash(chars, length);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
@@ -302,7 +311,7 @@ impl ObjString {
         Self::allocate(gc, chars, length, hash)
     }
 
-    pub(crate) fn from_chars(mut gc: Gc, chars: *const c_char, length: usize) -> *mut Self {
+    pub(crate) fn from_borrowed(mut gc: Gc, chars: *const c_char, length: usize) -> *mut Self {
         let hash = str_hash(chars, length);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
@@ -319,6 +328,12 @@ impl ObjString {
         }
         Self::allocate(gc, heap_chars, length, hash)
     }
+
+    pub(crate) fn from_static(gc: Gc, s: &'static CStr) -> *mut Self {
+        let chars = s.as_ptr() as *const c_char;
+        let length = s.to_bytes().len();
+        Self::from_borrowed(gc, chars, length)
+    }
 }
 
 fn str_hash(chars: *const c_char, length: usize) -> u32 {
@@ -332,10 +347,10 @@ fn str_hash(chars: *const c_char, length: usize) -> u32 {
 
 #[repr(C)]
 pub struct ObjUpvalue {
-    obj: Obj,
-    location: *mut Value,
-    closed: Value,
-    next: *mut ObjUpvalue,
+    pub(crate) obj: Obj,
+    pub(crate) location: *mut Value,
+    pub(crate) closed: Value,
+    pub(crate) next: *mut ObjUpvalue,
 }
 
 impl ObjUpvalue {

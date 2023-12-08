@@ -10,6 +10,7 @@ crate_type = ["staticlib"]
 stress_gc = []
 
 [dependencies]
+libc = "0.2.150"
 once_cell = "1.18.0"
 
 [build-dependencies]

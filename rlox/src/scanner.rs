@@ -1,19 +1,52 @@
 use std::ffi::{c_char, c_int, CStr, CString};
+use std::ptr;
 
 use once_cell::sync::Lazy;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Token {
-    r#type: TokenType,
-    start: *const c_char,
-    length: c_int,
-    line: c_int,
+    pub(crate) r#type: TokenType,
+    pub(crate) start: *const c_char,
+    pub(crate) length: c_int,
+    pub(crate) line: c_int,
+}
+
+impl Token {
+    pub(crate) fn zero() -> Self {
+        Self {
+            r#type: TokenType::TokenError,
+            start: ptr::null_mut(),
+            length: 0,
+            line: 0,
+        }
+    }
+
+    pub(crate) fn synthetic(text: &'static CStr) -> Self {
+        let ty = match text.to_str().unwrap() {
+            "super" => TokenType::TokenSuper,
+            "this" => TokenType::TokenThis,
+            _ => unreachable!(),
+        };
+
+        Self {
+            r#type: ty,
+            line: 0,
+            start: text.as_ptr(),
+            length: text.to_bytes().len() as i32,
+        }
+    }
+
+    pub(crate) fn text(&self) -> &str {
+        let bytes =
+            unsafe { std::slice::from_raw_parts(self.start as *const u8, self.length as usize) };
+        std::str::from_utf8(bytes).expect("utf-8 source")
+    }
 }
 
 /// cbindgen:rename-all=ScreamingSnakeCase
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TokenType {
     // Single-character tokens
     TokenLeftParen,
@@ -138,6 +171,14 @@ pub struct Scanner {
 }
 
 impl Scanner {
+    pub fn new(source: *const c_char) -> Self {
+        Self {
+            start: source,
+            current: source,
+            line: 1,
+        }
+    }
+
     pub fn init(&mut self, source: *const c_char) {
         self.start = source;
         self.current = source;

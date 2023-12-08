@@ -12,6 +12,10 @@ pub struct Gc {
 }
 
 impl Gc {
+    pub(crate) fn new(compiler: *mut Compiler, vm: *mut Vm) -> Self {
+        Self { compiler, vm }
+    }
+
     pub fn collect_garbage(&mut self) {
         debugln!("-- gc start");
         let before = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;

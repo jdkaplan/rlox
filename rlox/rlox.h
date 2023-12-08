@@ -268,7 +268,6 @@ typedef struct Compiler {
   int local_count;
   int scope_depth;
   struct Upvalue upvalues[U8_COUNT];
-  int upvalue_count;
 } Compiler;
 
 typedef struct Gc {
@@ -380,7 +379,166 @@ void free_objects(struct Gc gc, struct Obj *root);
 
 void obj_free(struct Gc gc, struct Obj *obj);
 
+void vm_init(struct Vm *vm);
+
+void vm_free(struct Vm *vm);
+
+enum InterpretResult vm_interpret(struct Vm *vm, const char *source);
+
+void vm_push(struct Vm *vm, struct Value value);
+
+struct Value vm_pop(struct Vm *vm);
+
+struct Value clock_native(unsigned int _argc, const struct Value *_argv);
+
+struct ObjFunction *compile(struct Vm *vm, const char *source);
+
 void hello(void);
+
+void advance(struct Parser *parser);
+
+bool match(struct Parser *parser, enum TokenType ty);
+
+void number(struct Parser *parser, bool can_assign);
+
+void literal(struct Parser *parser, bool can_assign);
+
+void string(struct Parser *parser, bool can_assign);
+
+void this_(struct Parser *parser, bool can_assign);
+
+void super_(struct Parser *parser, bool can_assign);
+
+void group(struct Parser *parser, bool can_assign);
+
+void call(struct Parser *parser, bool can_assign);
+
+void unary(struct Parser *parser, bool can_assign);
+
+void and_(struct Parser *parser, bool can_assign);
+
+void or_(struct Parser *parser, bool can_assign);
+
+void dot(struct Parser *parser, bool can_assign);
+
+void variable(struct Parser *parser, bool can_assign);
+
+void binary(struct Parser *parser, bool can_assign);
+
+void expression(struct Parser *parser);
+
+void named_variable(struct Parser *parser, struct Token name, bool can_assign);
+
+void define_variable(struct Parser *parser, uint8_t global);
+
+void declare_variable(struct Parser *parser);
+
+void function(struct Parser *parser, enum FunctionMode mode);
+
+void statement(struct Parser *parser);
+
+int add_upvalue(struct Parser *parser, struct Compiler *compiler, uint8_t index, bool is_local);
+
+int resolve_local(struct Parser *parser, struct Compiler *compiler, struct Token name);
+
+bool identifiers_equal(const struct Token *a, const struct Token *b);
+
+uint8_t identifier_constant(struct Parser *parser, const struct Token *name);
+
+void add_local(struct Parser *parser, struct Token name);
+
+void mark_initialized(struct Compiler *compiler);
+
+uint8_t make_constant(struct Parser *parser, struct Value value);
+
+void emit_return(struct Parser *parser);
+
+void patch_jump(struct Parser *parser, unsigned int offset);
+
+unsigned int emit_jump(struct Parser *parser, enum Opcode op);
+
+void emit_loop(struct Parser *parser, unsigned int start);
+
+void emit_bytes(struct Parser *parser, uint8_t b1, uint8_t b2);
+
+void emit_byte(struct Parser *parser, uint8_t b);
+
+bool check(struct Parser *parser, enum TokenType ty);
+
+void consume(struct Parser *parser, enum TokenType ty, const char *msg);
+
+void scope_begin(struct Parser *parser);
+
+void scope_end(struct Parser *parser);
+
+void stmt_if(struct Parser *parser);
+
+void stmt_return(struct Parser *parser);
+
+void stmt_expr(struct Parser *parser);
+
+void stmt_print(struct Parser *parser);
+
+uint8_t parse_variable(struct Parser *parser, const char *msg);
+
+struct Chunk *current_chunk(struct Parser *parser);
+
+void synchronize(struct Parser *parser);
+
+void decl_var(struct Parser *parser);
+
+void decl_class(struct Parser *parser);
+
+void declaration(struct Parser *parser);
+
+void method(struct Parser *parser);
+
+void block(struct Parser *parser);
+
+void stmt_while(struct Parser *parser);
+
+void stmt_for(struct Parser *parser);
+
+void error_at_current(struct Parser *parser, const char *msg);
+
+void error(struct Parser *parser, const char *msg);
+
+void parser_init(struct Parser *parser, struct Scanner *scanner, struct Vm *vm);
+
+void compiler_init(struct Parser *parser, struct Compiler *compiler, enum FunctionMode mode);
+
+struct ObjFunction *end_compiler(struct Parser *parser);
+
+struct Value vm_peek(struct Vm *vm, unsigned int offset);
+
+void vm_reset_stack(struct Vm *vm);
+
+void vm_print_stack_trace(struct Vm *vm);
+
+bool vm_call(struct Vm *vm, struct ObjClosure *closure, unsigned int argc);
+
+bool vm_call_value(struct Vm *vm, struct Value callee, unsigned int argc);
+
+bool vm_invoke_from_class(struct Vm *vm,
+                          const struct ObjClass *klass,
+                          const struct ObjString *name,
+                          unsigned int argc);
+
+bool vm_invoke(struct Vm *vm, const struct ObjString *name, unsigned int argc);
+
+bool vm_bind_method(struct Vm *vm, const struct ObjClass *klass, const struct ObjString *name);
+
+void vm_define_method(struct Vm *vm, struct ObjString *name);
+
+struct ObjUpvalue *vm_capture_upvalue(struct Vm *vm, struct Value *local);
+
+void vm_close_upvalues(struct Vm *vm, struct Value *last);
+
+bool is_falsey(struct Value value);
+
+struct ObjString *concatenate(struct Gc gc, const struct ObjString *a, const struct ObjString *b);
+
+enum InterpretResult vm_run(struct Vm *vm);
 
 void *reallocate(struct Gc gc, void *ptr, uintptr_t old, uintptr_t new_);
 

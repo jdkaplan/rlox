@@ -1,12 +1,12 @@
 use std::fmt;
 
-use crate::{object::print_object, Obj};
+use crate::object::{print_object, Obj, ObjType};
 
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Value {
-    r#type: ValueType,
-    r#as: ValueAs,
+    pub(crate) r#type: ValueType,
+    pub(crate) r#as: ValueAs,
 }
 
 impl Value {
@@ -24,6 +24,13 @@ impl Value {
         }
     }
 
+    pub(crate) fn number(number: f64) -> Self {
+        Self {
+            r#type: ValueType::TNumber,
+            r#as: ValueAs { number },
+        }
+    }
+
     pub(crate) fn obj(obj: *mut Obj) -> Self {
         Self {
             r#type: ValueType::TObj,
@@ -33,8 +40,30 @@ impl Value {
 }
 
 impl Value {
+    pub(crate) fn is_bool(&self) -> bool {
+        self.r#type == ValueType::TBool
+    }
+
     pub(crate) fn is_nil(&self) -> bool {
         self.r#type == ValueType::TNil
+    }
+
+    pub(crate) fn is_number(&self) -> bool {
+        self.r#type == ValueType::TNumber
+    }
+
+    pub(crate) fn is_falsey(&self) -> bool {
+        self.is_nil() || (self.is_bool() && unsafe { !self.as_bool() })
+    }
+}
+
+impl Value {
+    pub(crate) unsafe fn as_bool(&self) -> bool {
+        self.r#as.boolean
+    }
+
+    pub(crate) unsafe fn as_number(&self) -> f64 {
+        self.r#as.number
     }
 }
 
@@ -52,6 +81,23 @@ impl fmt::Display for Value {
             ValueType::TNumber => write!(f, "{}", unsafe { self.r#as.number }),
             ValueType::TObj => write!(f, "<object Object>"), // TODO
         }
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Value")
+            .field("r#type", &self.r#type)
+            .field(
+                "r#as",
+                match self.r#type {
+                    ValueType::TBool => unsafe { &self.r#as.boolean },
+                    ValueType::TNil => &"nil",
+                    ValueType::TNumber => unsafe { &self.r#as.number },
+                    ValueType::TObj => unsafe { &self.r#as.obj },
+                },
+            )
+            .finish()
     }
 }
 
@@ -97,8 +143,18 @@ impl PartialEq for Value {
     }
 }
 
+impl Value {
+    pub(crate) fn is_obj_type(&self, ty: ObjType) -> bool {
+        self.r#type == ValueType::TObj && unsafe { self.r#as.obj.as_ref().unwrap() }.r#type == ty
+    }
+
+    pub(crate) unsafe fn as_obj<T>(&self) -> *mut T {
+        (unsafe { self.r#as.obj } as *mut T)
+    }
+}
+
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ValueType {
     TBool,
@@ -110,7 +166,7 @@ pub enum ValueType {
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub union ValueAs {
-    boolean: bool,
-    number: f64,
-    obj: *mut Obj,
+    pub(crate) boolean: bool,
+    pub(crate) number: f64,
+    pub(crate) obj: *mut Obj,
 }
