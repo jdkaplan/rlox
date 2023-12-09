@@ -3,8 +3,10 @@ use std::fmt;
 use std::num::Wrapping;
 use std::ptr;
 
+use crate::alloc::Gc;
+use crate::chunk::Chunk;
+use crate::table::Table;
 use crate::value::Value;
-use crate::{Chunk, Gc, Table};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -85,7 +87,6 @@ impl Obj {
     }
 }
 
-/// cbindgen:rename-all=ScreamingSnakeCase
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ObjType {
@@ -306,7 +307,7 @@ pub fn print_instance(instance: *const ObjInstance) {
     });
 }
 
-pub type NativeFn = extern "C" fn(argc: c_uint, argv: *const Value) -> Value;
+pub type NativeFn = fn(argc: c_uint, argv: *const Value) -> Value;
 
 #[repr(C)]
 pub struct ObjNative {

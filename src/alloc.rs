@@ -3,7 +3,13 @@ use std::mem;
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
-use crate::{Compiler, Obj, ObjType, Table, Value, Vm, *};
+use crate::compiler::Compiler;
+use crate::object::{
+    Obj, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjType, ObjUpvalue,
+};
+use crate::table::Table;
+use crate::value::Value;
+use crate::vm::Vm;
 
 const GC_GROWTH_FACTOR: usize = 2;
 
@@ -324,12 +330,4 @@ pub fn _reallocate<T>(ptr: *mut T, new: usize) -> *mut T {
         panic!("could not allocate memory");
     }
     ptr
-}
-
-fn grow_cap(cap: usize) -> usize {
-    if cap < 8 {
-        8
-    } else {
-        2 * cap
-    }
 }

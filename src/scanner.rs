@@ -44,7 +44,6 @@ impl Token {
     }
 }
 
-/// cbindgen:rename-all=ScreamingSnakeCase
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TokenType {

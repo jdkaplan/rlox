@@ -258,7 +258,6 @@ impl Chunk {
     }
 }
 
-/// cbindgen:rename-all=ScreamingSnakeCase
 #[derive(Debug, PartialEq, Eq)]
 #[repr(C)]
 pub enum Opcode {

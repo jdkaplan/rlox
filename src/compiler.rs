@@ -5,11 +5,13 @@ use std::ptr;
 
 use once_cell::sync::Lazy;
 
-use crate::chunk::Chunk;
+use crate::alloc::Gc;
+use crate::chunk::{Chunk, Opcode};
 use crate::object::{Obj, ObjFunction, ObjString};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::value::Value;
-use crate::{Gc, Opcode, Vm, U8_COUNT};
+use crate::vm::Vm;
+use crate::U8_COUNT;
 
 static THIS_STR: Lazy<CString> = Lazy::new(|| CString::new("this").unwrap());
 static SUPER_STR: Lazy<CString> = Lazy::new(|| CString::new("super").unwrap());
@@ -44,7 +46,6 @@ pub struct Compiler {
     upvalues: [Upvalue; U8_COUNT],
 }
 
-/// cbindgen:rename-all=ScreamingSnakeCase
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum FunctionMode {

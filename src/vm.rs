@@ -1,14 +1,53 @@
 use std::ffi::{c_char, c_uint, CStr, CString};
 use std::mem::MaybeUninit;
 use std::ptr;
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
 
 use crate::alloc::Gc;
+use crate::chunk::Opcode;
 use crate::object::{NativeFn, Obj, ObjClosure, ObjNative, ObjString, ObjType, ObjUpvalue, *};
 use crate::table::Table;
 use crate::value::{Value, ValueType};
-use crate::{clock_native, concatenate, InterpretResult, Opcode, FRAMES_MAX, STACK_MAX};
+use crate::{FRAMES_MAX, STACK_MAX};
+
+#[derive(PartialEq, Eq)]
+#[repr(C)]
+pub enum InterpretResult {
+    InterpretOk,
+    InterpretCompileError,
+    InterpretRuntimeError,
+}
+
+pub fn clock_native(_argc: c_uint, _argv: *const Value) -> Value {
+    Value::number(clock().as_secs_f64())
+}
+
+fn clock() -> Duration {
+    let tp = unsafe {
+        let mut tp = std::mem::MaybeUninit::uninit();
+        if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, tp.as_mut_ptr()) != 0 {
+            panic!("clock: {}", std::io::Error::last_os_error());
+        }
+        tp.assume_init()
+    };
+
+    Duration::new(tp.tv_sec as u64, tp.tv_nsec as u32)
+}
+
+pub fn concatenate(mut gc: Gc, a: *const ObjString, b: *const ObjString) -> *mut ObjString {
+    let length = unsafe { &*a }.length + unsafe { &*b }.length;
+    let chars = gc.resize_array(std::ptr::null_mut(), 0, length + 1);
+
+    unsafe {
+        std::ptr::copy_nonoverlapping((*a).chars, chars, (*a).length);
+        std::ptr::copy_nonoverlapping((*b).chars, chars.add((*a).length), (*b).length);
+        *chars.add(length) = '\0' as c_char;
+    }
+
+    ObjString::from_owned(gc, chars, length)
+}
 
 #[repr(C)]
 pub struct RuntimeError;

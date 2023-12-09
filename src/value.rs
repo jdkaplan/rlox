@@ -157,7 +157,6 @@ impl Value {
     }
 }
 
-/// cbindgen:rename-all=ScreamingSnakeCase
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ValueType {
