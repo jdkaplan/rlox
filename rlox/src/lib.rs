@@ -803,6 +803,7 @@ pub const FRAMES_MAX: usize = 64;
 pub const STACK_MAX: usize = FRAMES_MAX * U8_COUNT;
 
 /// cbindgen:rename-all=ScreamingSnakeCase
+#[derive(PartialEq, Eq)]
 #[repr(C)]
 pub enum InterpretResult {
     InterpretOk,

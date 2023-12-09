@@ -1,4 +1,5 @@
-use std::ffi::{c_uint, CStr, CString};
+use std::ffi::{c_char, c_uint, CStr, CString};
+use std::mem::MaybeUninit;
 use std::ptr;
 
 use once_cell::sync::Lazy;
@@ -7,7 +8,7 @@ use crate::alloc::Gc;
 use crate::object::{NativeFn, Obj, ObjClosure, ObjNative, ObjString, ObjType, ObjUpvalue, *};
 use crate::table::Table;
 use crate::value::{Value, ValueType};
-use crate::{clock_native, concatenate, Opcode, FRAMES_MAX, STACK_MAX};
+use crate::{clock_native, concatenate, InterpretResult, Opcode, FRAMES_MAX, STACK_MAX};
 
 #[repr(C)]
 pub struct RuntimeError;
@@ -44,8 +45,23 @@ pub struct Vm {
     pub(crate) next_gc: usize,
 }
 
+impl Default for Vm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // Alloc
 impl Vm {
+    pub fn new() -> Self {
+        let mut vm = MaybeUninit::uninit();
+        unsafe {
+            let ptr: *mut Self = vm.as_mut_ptr();
+            Self::init(ptr.as_mut().unwrap());
+            vm.assume_init()
+        }
+    }
+
     fn zero(&mut self) {
         self.reset_stack();
 
@@ -384,6 +400,31 @@ impl Vm {
 
 // Execution
 impl Vm {
+    pub fn interpret(&mut self, source: *const c_char) -> InterpretResult {
+        let gc = Gc::new(ptr::null_mut(), self);
+
+        let function = crate::compiler::compile(self, source);
+        if function.is_null() {
+            return InterpretResult::InterpretCompileError;
+        }
+
+        // GC: Temporarily make the function reachable.
+        let closure = {
+            self.push(Value::obj(function as *mut Obj));
+            let closure = ObjClosure::new(gc, function);
+            self.pop();
+            closure
+        };
+
+        self.push(Value::obj(closure as *mut Obj));
+        self.call(closure, 0);
+
+        match self.run() {
+            Ok(_) => InterpretResult::InterpretOk,
+            Err(_) => InterpretResult::InterpretRuntimeError,
+        }
+    }
+
     #[allow(unused_unsafe)]
     pub(crate) fn run(&mut self) -> Result<(), RuntimeError> {
         let gc = Gc {
