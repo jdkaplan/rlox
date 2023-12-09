@@ -215,20 +215,20 @@ impl Vm {
             compiler: ptr::null_mut(),
         };
 
-        if callee.r#type != ValueType::TObj {
+        if callee.r#type != ValueType::Obj {
             self.runtime_error("Can only call functions and classes.");
             return false;
         }
 
         let callee = unsafe { callee.r#as.obj };
         match unsafe { callee.as_ref().unwrap() }.r#type {
-            ObjType::OBoundMethod => {
+            ObjType::BoundMethod => {
                 let callee = callee as *mut ObjBoundMethod;
                 let bound = unsafe { callee.as_ref().unwrap() };
                 unsafe { *self.stack_top.sub(argc as usize + 1) = bound.receiver };
                 self.call(bound.method, argc)
             }
-            ObjType::OClass => {
+            ObjType::Class => {
                 let callee = callee as *mut ObjClass;
 
                 // Replace the class that was called with an empty instance of that class.
@@ -238,7 +238,7 @@ impl Vm {
                 // Init!
                 let klass = unsafe { callee.as_ref().unwrap() };
                 if let Some(init) = klass.methods.get(self.init_string) {
-                    assert!(init.is_obj_type(ObjType::OClosure));
+                    assert!(init.is_obj_type(ObjType::Closure));
                     let init = unsafe { init.as_obj::<ObjClosure>() };
                     return self.call(init, argc);
                 } else if argc != 0 {
@@ -247,11 +247,11 @@ impl Vm {
                 }
                 true
             }
-            ObjType::OClosure => {
+            ObjType::Closure => {
                 let callee = callee as *mut ObjClosure;
                 self.call(callee, argc)
             }
-            ObjType::ONative => {
+            ObjType::Native => {
                 let callee = callee as *mut ObjNative;
                 let func = unsafe { callee.as_ref().unwrap() }.r#fn;
                 let argv = unsafe { self.stack_top.sub(argc as usize) };
@@ -283,14 +283,14 @@ impl Vm {
             return false;
         };
 
-        assert!(method.is_obj_type(ObjType::OClosure));
+        assert!(method.is_obj_type(ObjType::Closure));
         let method = unsafe { method.as_obj::<ObjClosure>() };
         self.call(method, argc)
     }
 
     pub(crate) fn invoke(&mut self, name: *const ObjString, argc: c_uint) -> bool {
         let receiver = self.peek(argc);
-        if !receiver.is_obj_type(ObjType::OInstance) {
+        if !receiver.is_obj_type(ObjType::Instance) {
             self.runtime_error("Can't call method on non-instance.");
             return false;
         }
@@ -358,7 +358,7 @@ impl Vm {
             return false;
         };
 
-        assert!(method.is_obj_type(ObjType::OClosure));
+        assert!(method.is_obj_type(ObjType::Closure));
 
         let bound = ObjBoundMethod::new(gc, self.peek(0), unsafe { method.as_obj::<ObjClosure>() });
         self.pop(); // method
@@ -573,36 +573,36 @@ impl Vm {
             }
 
             match opcode {
-                Opcode::OpConstant => {
+                Opcode::Constant => {
                     self.push(read_constant!());
                 }
 
-                Opcode::OpNil => {
+                Opcode::Nil => {
                     self.push(Value::nil());
                 }
-                Opcode::OpTrue => {
+                Opcode::True => {
                     self.push(Value::bool(true));
                 }
-                Opcode::OpFalse => {
+                Opcode::False => {
                     self.push(Value::bool(false));
                 }
 
-                Opcode::OpPop => {
+                Opcode::Pop => {
                     self.pop();
                 }
 
-                Opcode::OpGetLocal => {
+                Opcode::GetLocal => {
                     let slot = read_byte!();
                     let value = unsafe { *((*frame).slots.offset(slot as isize)) };
                     self.push(value);
                 }
-                Opcode::OpSetLocal => {
+                Opcode::SetLocal => {
                     let slot = read_byte!();
                     let value = self.peek(0);
                     unsafe { *((*frame).slots.offset(slot as isize)) = value };
                 }
 
-                Opcode::OpDefineGlobal => {
+                Opcode::DefineGlobal => {
                     let name = read_string!();
 
                     // GC: Leave the value on the stack temporarily in case this triggers
@@ -611,7 +611,7 @@ impl Vm {
                     self.globals.set(gc, name, value);
                     self.pop();
                 }
-                Opcode::OpGetGlobal => {
+                Opcode::GetGlobal => {
                     let name = read_string!();
                     let Some(value) = self.globals.get(name) else {
                         self.runtime_error(format!("Undefined variable '{}'.", unsafe { &*name }));
@@ -620,7 +620,7 @@ impl Vm {
 
                     self.push(value);
                 }
-                Opcode::OpSetGlobal => {
+                Opcode::SetGlobal => {
                     let name = read_string!();
 
                     let value = self.peek(0);
@@ -634,14 +634,14 @@ impl Vm {
                     }
                 }
 
-                Opcode::OpGetUpvalue => {
+                Opcode::GetUpvalue => {
                     let slot = read_byte!();
                     let value = unsafe {
                         *(*(*(*(*frame).closure).upvalues.offset(slot as isize))).location
                     };
                     self.push(value);
                 }
-                Opcode::OpSetUpvalue => {
+                Opcode::SetUpvalue => {
                     let slot = read_byte!();
                     let value = self.peek(0);
                     unsafe {
@@ -649,8 +649,8 @@ impl Vm {
                     };
                 }
 
-                Opcode::OpGetProperty => {
-                    if !self.peek(0).is_obj_type(ObjType::OInstance) {
+                Opcode::GetProperty => {
+                    if !self.peek(0).is_obj_type(ObjType::Instance) {
                         self.runtime_error("Only instances have properties.");
                         return Err(RuntimeError);
                     }
@@ -671,8 +671,8 @@ impl Vm {
                         return Err(RuntimeError);
                     };
                 }
-                Opcode::OpSetProperty => {
-                    if !self.peek(1).is_obj_type(ObjType::OInstance) {
+                Opcode::SetProperty => {
+                    if !self.peek(1).is_obj_type(ObjType::Instance) {
                         self.runtime_error("Only instances have fields.");
                         return Err(RuntimeError);
                     }
@@ -687,7 +687,7 @@ impl Vm {
                     self.pop(); // instance
                     self.push(value);
                 }
-                Opcode::OpGetSuper => {
+                Opcode::GetSuper => {
                     let name = read_string!();
                     let superclass = unsafe { self.pop().as_obj::<ObjClass>() };
 
@@ -696,20 +696,20 @@ impl Vm {
                     }
                 }
 
-                Opcode::OpEqual => {
+                Opcode::Equal => {
                     let b = self.pop();
                     let a = self.pop();
                     self.push(Value::bool(a == b));
                 }
-                Opcode::OpGreater => compare_op!(PartialOrd::gt)?,
-                Opcode::OpLess => compare_op!(PartialOrd::lt)?,
+                Opcode::Greater => compare_op!(PartialOrd::gt)?,
+                Opcode::Less => compare_op!(PartialOrd::lt)?,
 
-                Opcode::OpNot => {
+                Opcode::Not => {
                     let a = self.pop();
                     self.push(Value::bool(a.is_falsey()));
                 }
 
-                Opcode::OpNeg => {
+                Opcode::Neg => {
                     if !self.peek(0).is_number() {
                         self.runtime_error("Operand must be a number.");
                         return Err(RuntimeError);
@@ -718,9 +718,9 @@ impl Vm {
                     self.push(Value::number(-a));
                 }
 
-                Opcode::OpAdd => {
-                    if self.peek(0).is_obj_type(ObjType::OString)
-                        && self.peek(1).is_obj_type(ObjType::OString)
+                Opcode::Add => {
+                    if self.peek(0).is_obj_type(ObjType::String)
+                        && self.peek(1).is_obj_type(ObjType::String)
                     {
                         // GC: Keep the source strings reachable while allocating the result in
                         // case that triggers garbage collection.
@@ -741,37 +741,37 @@ impl Vm {
                         return Err(RuntimeError);
                     }
                 }
-                Opcode::OpSub => {
+                Opcode::Sub => {
                     binary_op!(std::ops::Sub::<f64>::sub)?;
                 }
-                Opcode::OpMul => {
+                Opcode::Mul => {
                     binary_op!(std::ops::Mul::<f64>::mul)?;
                 }
-                Opcode::OpDiv => {
+                Opcode::Div => {
                     binary_op!(std::ops::Div::<f64>::div)?;
                 }
 
-                Opcode::OpPrint => {
+                Opcode::Print => {
                     let v = self.pop();
                     println!("{}", v);
                 }
 
-                Opcode::OpJump => {
+                Opcode::Jump => {
                     let offset = read_short!();
                     unsafe { (*frame).ip = (*frame).ip.add(offset as usize) };
                 }
-                Opcode::OpJumpIfFalse => {
+                Opcode::JumpIfFalse => {
                     let offset = read_short!();
                     if self.peek(0).is_falsey() {
                         unsafe { (*frame).ip = (*frame).ip.add(offset as usize) };
                     }
                 }
-                Opcode::OpLoop => {
+                Opcode::Loop => {
                     let offset = read_short!();
                     unsafe { (*frame).ip = (*frame).ip.sub(offset as usize) };
                 }
 
-                Opcode::OpCall => {
+                Opcode::Call => {
                     let argc = read_byte!() as c_uint;
                     let callee = self.peek(argc);
                     if !self.call_value(callee, argc) {
@@ -779,7 +779,7 @@ impl Vm {
                     };
                     frame = frame_at![(self.frame_count as usize) - 1];
                 }
-                Opcode::OpInvoke => {
+                Opcode::Invoke => {
                     let method = read_string!();
                     let argc = read_byte!() as c_uint;
                     if !self.invoke(method, argc) {
@@ -787,7 +787,7 @@ impl Vm {
                     };
                     frame = frame_at![(self.frame_count as usize) - 1];
                 }
-                Opcode::OpSuperInvoke => {
+                Opcode::SuperInvoke => {
                     let method = read_string!();
                     let argc = read_byte!() as c_uint;
                     let superclass = unsafe { self.pop().as_obj::<ObjClass>() };
@@ -796,7 +796,7 @@ impl Vm {
                     }
                     frame = frame_at![(self.frame_count as usize) - 1];
                 }
-                Opcode::OpClosure => {
+                Opcode::Closure => {
                     let func = unsafe { read_constant!().as_obj::<ObjFunction>() };
                     let closure = ObjClosure::new(gc, unsafe { func.as_mut().unwrap() });
                     self.push(Value::obj(closure as *mut Obj));
@@ -819,11 +819,11 @@ impl Vm {
                         }
                     }
                 }
-                Opcode::OpCloseUpvalue => {
+                Opcode::CloseUpvalue => {
                     self.close_upvalues(unsafe { self.stack_top.sub(1) });
                     self.pop();
                 }
-                Opcode::OpReturn => {
+                Opcode::Return => {
                     let res = self.pop();
                     self.close_upvalues(unsafe { &*frame }.slots);
 
@@ -838,14 +838,14 @@ impl Vm {
                     frame = &mut self.frames[(self.frame_count as usize) - 1];
                 }
 
-                Opcode::OpClass => {
+                Opcode::Class => {
                     let name = read_string!();
                     let klass = ObjClass::new(gc, name);
                     self.push(Value::obj(klass as *mut Obj));
                 }
-                Opcode::OpInherit => {
+                Opcode::Inherit => {
                     let superclass = self.peek(1);
-                    if !superclass.is_obj_type(ObjType::OClass) {
+                    if !superclass.is_obj_type(ObjType::Class) {
                         self.runtime_error("Superclass must be a class.");
                         return Err(RuntimeError);
                     }
@@ -862,7 +862,7 @@ impl Vm {
 
                     self.pop(); // subclass
                 }
-                Opcode::OpMethod => {
+                Opcode::Method => {
                     let name = read_string!();
                     self.define_method(name);
                 }

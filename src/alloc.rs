@@ -228,21 +228,21 @@ impl Gc {
     fn expand_obj(&mut self, obj: *mut Obj) {
         debug_log_gc!("expand obj: {:?}", obj);
         match unsafe { obj.as_ref().unwrap().r#type } {
-            ObjType::OBoundMethod => {
+            ObjType::BoundMethod => {
                 let bound = unsafe { (obj as *mut ObjBoundMethod).as_mut().unwrap() };
                 debug_log_gc!("expand as: {}", bound);
 
                 self.mark_value(bound.receiver);
                 self.mark_obj(bound.method as *mut Obj);
             }
-            ObjType::OClass => {
+            ObjType::Class => {
                 let klass = unsafe { (obj as *mut ObjClass).as_mut().unwrap() };
                 debug_log_gc!("expand as: {}", klass);
 
                 self.mark_obj(klass.name as *mut Obj);
                 self.mark_table(&mut klass.methods);
             }
-            ObjType::OClosure => {
+            ObjType::Closure => {
                 let closure = unsafe { (obj as *mut ObjClosure).as_mut().unwrap() };
                 debug_log_gc!("expand as: {}", closure);
 
@@ -251,7 +251,7 @@ impl Gc {
                     self.mark_obj(unsafe { closure.upvalues.add(i) as *mut Obj });
                 }
             }
-            ObjType::OFunction => {
+            ObjType::Function => {
                 let function = unsafe { (obj as *mut ObjFunction).as_mut().unwrap() };
                 debug_log_gc!("expand as: {}", function);
 
@@ -260,14 +260,14 @@ impl Gc {
                     self.mark_value(*function.chunk.constants.get(i));
                 }
             }
-            ObjType::OInstance => {
+            ObjType::Instance => {
                 let instance = unsafe { (obj as *mut ObjInstance).as_mut().unwrap() };
                 debug_log_gc!("expand as: {}", instance);
 
                 self.mark_obj(instance.klass as *mut Obj);
                 self.mark_table(&mut instance.fields);
             }
-            ObjType::OUpvalue => {
+            ObjType::Upvalue => {
                 let upvalue = unsafe { (obj as *mut ObjUpvalue).as_mut().unwrap() };
                 debug_log_gc!("expand as: {}", upvalue);
 
@@ -275,7 +275,7 @@ impl Gc {
             }
 
             // No further references
-            ObjType::ONative | ObjType::OString => {}
+            ObjType::Native | ObjType::String => {}
         }
     }
 }

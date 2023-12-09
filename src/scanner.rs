@@ -15,7 +15,7 @@ pub struct Token {
 impl Token {
     pub(crate) fn zero() -> Self {
         Self {
-            r#type: TokenType::TokenError,
+            r#type: TokenType::Error,
             start: ptr::null_mut(),
             length: 0,
             line: 0,
@@ -24,8 +24,8 @@ impl Token {
 
     pub(crate) fn synthetic(text: &'static CStr) -> Self {
         let ty = match text.to_str().unwrap() {
-            "super" => TokenType::TokenSuper,
-            "this" => TokenType::TokenThis,
+            "super" => TokenType::Super,
+            "this" => TokenType::This,
             _ => unreachable!(),
         };
 
@@ -48,54 +48,54 @@ impl Token {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TokenType {
     // Single-character tokens
-    TokenLeftParen,
-    TokenRightParen,
-    TokenLeftBrace,
-    TokenRightBrace,
-    TokenComma,
-    TokenDot,
-    TokenMinus,
-    TokenPlus,
-    TokenSemicolon,
-    TokenSlash,
-    TokenStar,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Dot,
+    Minus,
+    Plus,
+    Semicolon,
+    Slash,
+    Star,
 
     // One- or two-character tokens
-    TokenBang,
-    TokenBangEqual,
-    TokenEqual,
-    TokenEqualEqual,
-    TokenGreater,
-    TokenGreaterEqual,
-    TokenLess,
-    TokenLessEqual,
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 
     // Literals
-    TokenIdentifier,
-    TokenString,
-    TokenNumber,
+    Identifier,
+    String,
+    Number,
 
     // Keywords
-    TokenAnd,
-    TokenClass,
-    TokenElse,
-    TokenFalse,
-    TokenFor,
-    TokenFun,
-    TokenIf,
-    TokenNil,
-    TokenOr,
-    TokenPrint,
-    TokenReturn,
-    TokenSuper,
-    TokenThis,
-    TokenTrue,
-    TokenVar,
-    TokenWhile,
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
 
     // Synthetic tokens
-    TokenError,
-    TokenEof,
+    Error,
+    Eof,
 }
 
 fn is_alpha(c: char) -> bool {
@@ -124,24 +124,24 @@ fn keyword_or_identifier(start: *const c_char, current: *const c_char) -> TokenT
         };
     }
 
-    kwd_if!("and", TokenType::TokenAnd);
-    kwd_if!("class", TokenType::TokenClass);
-    kwd_if!("else", TokenType::TokenElse);
-    kwd_if!("false", TokenType::TokenFalse);
-    kwd_if!("for", TokenType::TokenFor);
-    kwd_if!("fun", TokenType::TokenFun);
-    kwd_if!("if", TokenType::TokenIf);
-    kwd_if!("nil", TokenType::TokenNil);
-    kwd_if!("or", TokenType::TokenOr);
-    kwd_if!("print", TokenType::TokenPrint);
-    kwd_if!("return", TokenType::TokenReturn);
-    kwd_if!("super", TokenType::TokenSuper);
-    kwd_if!("this", TokenType::TokenThis);
-    kwd_if!("true", TokenType::TokenTrue);
-    kwd_if!("var", TokenType::TokenVar);
-    kwd_if!("while", TokenType::TokenWhile);
+    kwd_if!("and", TokenType::And);
+    kwd_if!("class", TokenType::Class);
+    kwd_if!("else", TokenType::Else);
+    kwd_if!("false", TokenType::False);
+    kwd_if!("for", TokenType::For);
+    kwd_if!("fun", TokenType::Fun);
+    kwd_if!("if", TokenType::If);
+    kwd_if!("nil", TokenType::Nil);
+    kwd_if!("or", TokenType::Or);
+    kwd_if!("print", TokenType::Print);
+    kwd_if!("return", TokenType::Return);
+    kwd_if!("super", TokenType::Super);
+    kwd_if!("this", TokenType::This);
+    kwd_if!("true", TokenType::True);
+    kwd_if!("var", TokenType::Var);
+    kwd_if!("while", TokenType::While);
 
-    TokenType::TokenIdentifier
+    TokenType::Identifier
 }
 
 fn str_equal(a: &str, b: *const c_char, n: usize) -> bool {
@@ -190,7 +190,7 @@ impl Scanner {
         self.start = self.current;
 
         if self.at_eof() {
-            return self.make_token(TokenType::TokenEof);
+            return self.make_token(TokenType::Eof);
         }
 
         let c = self.advance();
@@ -204,45 +204,45 @@ impl Scanner {
 
         match c {
             // One character, no lookahead
-            '(' => self.make_token(TokenType::TokenLeftParen),
-            ')' => self.make_token(TokenType::TokenRightParen),
-            '{' => self.make_token(TokenType::TokenLeftBrace),
-            '}' => self.make_token(TokenType::TokenRightBrace),
-            ';' => self.make_token(TokenType::TokenSemicolon),
-            ',' => self.make_token(TokenType::TokenComma),
-            '.' => self.make_token(TokenType::TokenDot),
-            '-' => self.make_token(TokenType::TokenMinus),
-            '+' => self.make_token(TokenType::TokenPlus),
-            '/' => self.make_token(TokenType::TokenSlash),
-            '*' => self.make_token(TokenType::TokenStar),
+            '(' => self.make_token(TokenType::LeftParen),
+            ')' => self.make_token(TokenType::RightParen),
+            '{' => self.make_token(TokenType::LeftBrace),
+            '}' => self.make_token(TokenType::RightBrace),
+            ';' => self.make_token(TokenType::Semicolon),
+            ',' => self.make_token(TokenType::Comma),
+            '.' => self.make_token(TokenType::Dot),
+            '-' => self.make_token(TokenType::Minus),
+            '+' => self.make_token(TokenType::Plus),
+            '/' => self.make_token(TokenType::Slash),
+            '*' => self.make_token(TokenType::Star),
 
             // One or two characters, 1 lookahead
             '!' => {
                 if self.match_('=') {
-                    self.make_token(TokenType::TokenBangEqual)
+                    self.make_token(TokenType::BangEqual)
                 } else {
-                    self.make_token(TokenType::TokenBang)
+                    self.make_token(TokenType::Bang)
                 }
             }
             '=' => {
                 if self.match_('=') {
-                    self.make_token(TokenType::TokenEqualEqual)
+                    self.make_token(TokenType::EqualEqual)
                 } else {
-                    self.make_token(TokenType::TokenEqual)
+                    self.make_token(TokenType::Equal)
                 }
             }
             '<' => {
                 if self.match_('=') {
-                    self.make_token(TokenType::TokenLessEqual)
+                    self.make_token(TokenType::LessEqual)
                 } else {
-                    self.make_token(TokenType::TokenLess)
+                    self.make_token(TokenType::Less)
                 }
             }
             '>' => {
                 if self.match_('=') {
-                    self.make_token(TokenType::TokenGreaterEqual)
+                    self.make_token(TokenType::GreaterEqual)
                 } else {
-                    self.make_token(TokenType::TokenGreater)
+                    self.make_token(TokenType::Greater)
                 }
             }
 
@@ -308,7 +308,7 @@ impl Scanner {
             }
         }
 
-        self.make_token(TokenType::TokenNumber)
+        self.make_token(TokenType::Number)
     }
 
     fn scan_string(&mut self) -> Token {
@@ -327,7 +327,7 @@ impl Scanner {
         }
 
         self.advance(); // peek `"`
-        self.make_token(TokenType::TokenString)
+        self.make_token(TokenType::String)
     }
 
     fn at_eof(&self) -> bool {
@@ -385,7 +385,7 @@ impl Scanner {
 
     fn make_error(&self, msg: &CStr) -> Token {
         Token {
-            r#type: TokenType::TokenError,
+            r#type: TokenType::Error,
             start: msg.as_ptr() as *const c_char,
             length: msg
                 .to_bytes()

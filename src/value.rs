@@ -12,28 +12,28 @@ pub struct Value {
 impl Value {
     pub(crate) fn bool(boolean: bool) -> Self {
         Self {
-            r#type: ValueType::TBool,
+            r#type: ValueType::Bool,
             r#as: ValueAs { boolean },
         }
     }
 
     pub(crate) fn nil() -> Self {
         Self {
-            r#type: ValueType::TNil,
+            r#type: ValueType::Nil,
             r#as: ValueAs { number: 0.0 },
         }
     }
 
     pub(crate) fn number(number: f64) -> Self {
         Self {
-            r#type: ValueType::TNumber,
+            r#type: ValueType::Number,
             r#as: ValueAs { number },
         }
     }
 
     pub(crate) fn obj(obj: *mut Obj) -> Self {
         Self {
-            r#type: ValueType::TObj,
+            r#type: ValueType::Obj,
             r#as: ValueAs { obj },
         }
     }
@@ -41,19 +41,19 @@ impl Value {
 
 impl Value {
     pub(crate) fn is_bool(&self) -> bool {
-        self.r#type == ValueType::TBool
+        self.r#type == ValueType::Bool
     }
 
     pub(crate) fn is_nil(&self) -> bool {
-        self.r#type == ValueType::TNil
+        self.r#type == ValueType::Nil
     }
 
     pub(crate) fn is_number(&self) -> bool {
-        self.r#type == ValueType::TNumber
+        self.r#type == ValueType::Number
     }
 
     pub(crate) fn is_obj(&self) -> bool {
-        self.r#type == ValueType::TObj
+        self.r#type == ValueType::Obj
     }
 
     pub(crate) fn is_falsey(&self) -> bool {
@@ -74,16 +74,16 @@ impl Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.r#type {
-            ValueType::TBool => {
+            ValueType::Bool => {
                 if unsafe { self.r#as.boolean } {
                     write!(f, "true")
                 } else {
                     write!(f, "false")
                 }
             }
-            ValueType::TNil => write!(f, "nil"),
-            ValueType::TNumber => write!(f, "{}", unsafe { self.r#as.number }),
-            ValueType::TObj => write!(f, "{}", unsafe { self.r#as.obj.as_ref().unwrap() }),
+            ValueType::Nil => write!(f, "nil"),
+            ValueType::Number => write!(f, "{}", unsafe { self.r#as.number }),
+            ValueType::Obj => write!(f, "{}", unsafe { self.r#as.obj.as_ref().unwrap() }),
         }
     }
 }
@@ -95,10 +95,10 @@ impl fmt::Debug for Value {
             .field(
                 "r#as",
                 match self.r#type {
-                    ValueType::TBool => unsafe { &self.r#as.boolean },
-                    ValueType::TNil => &"nil",
-                    ValueType::TNumber => unsafe { &self.r#as.number },
-                    ValueType::TObj => unsafe { &self.r#as.obj },
+                    ValueType::Bool => unsafe { &self.r#as.boolean },
+                    ValueType::Nil => &"nil",
+                    ValueType::Number => unsafe { &self.r#as.number },
+                    ValueType::Obj => unsafe { &self.r#as.obj },
                 },
             )
             .finish()
@@ -108,16 +108,16 @@ impl fmt::Debug for Value {
 impl Value {
     pub fn print(&self) {
         match self.r#type {
-            ValueType::TBool => {
+            ValueType::Bool => {
                 if unsafe { self.r#as.boolean } {
                     print!("true")
                 } else {
                     print!("false")
                 }
             }
-            ValueType::TNil => print!("nil"),
-            ValueType::TNumber => print!("{}", unsafe { self.r#as.number }),
-            ValueType::TObj => print_object(unsafe { self.r#as.obj.as_mut().unwrap() }),
+            ValueType::Nil => print!("nil"),
+            ValueType::Number => print!("{}", unsafe { self.r#as.number }),
+            ValueType::Obj => print_object(unsafe { self.r#as.obj.as_mut().unwrap() }),
         }
     }
 }
@@ -127,29 +127,29 @@ impl Eq for Value {}
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self.r#type, other.r#type) {
-            (ValueType::TBool, ValueType::TBool) => unsafe {
+            (ValueType::Bool, ValueType::Bool) => unsafe {
                 self.r#as.boolean == other.r#as.boolean
             },
-            (ValueType::TBool, _) => false,
+            (ValueType::Bool, _) => false,
 
-            (ValueType::TNil, ValueType::TNil) => true,
-            (ValueType::TNil, _) => false,
+            (ValueType::Nil, ValueType::Nil) => true,
+            (ValueType::Nil, _) => false,
 
-            (ValueType::TNumber, ValueType::TNumber) => unsafe {
+            (ValueType::Number, ValueType::Number) => unsafe {
                 self.r#as.number == other.r#as.number
             },
-            (ValueType::TNumber, _) => false,
+            (ValueType::Number, _) => false,
 
             // The VM interns all strings, so pointer equality works for every object.
-            (ValueType::TObj, ValueType::TObj) => unsafe { self.r#as.obj == other.r#as.obj },
-            (ValueType::TObj, _) => false,
+            (ValueType::Obj, ValueType::Obj) => unsafe { self.r#as.obj == other.r#as.obj },
+            (ValueType::Obj, _) => false,
         }
     }
 }
 
 impl Value {
     pub(crate) fn is_obj_type(&self, ty: ObjType) -> bool {
-        self.r#type == ValueType::TObj && unsafe { self.r#as.obj.as_ref().unwrap() }.r#type == ty
+        self.r#type == ValueType::Obj && unsafe { self.r#as.obj.as_ref().unwrap() }.r#type == ty
     }
 
     pub(crate) unsafe fn as_obj<T>(&self) -> *mut T {
@@ -160,10 +160,10 @@ impl Value {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ValueType {
-    TBool,
-    TNil,
-    TNumber,
-    TObj,
+    Bool,
+    Nil,
+    Number,
+    Obj,
 }
 
 #[derive(Copy, Clone)]

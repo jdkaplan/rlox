@@ -20,23 +20,23 @@ impl fmt::Display for Obj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         unsafe {
             match self.r#type {
-                ObjType::OBoundMethod => {
+                ObjType::BoundMethod => {
                     write!(f, "{}", std::mem::transmute::<&Obj, &ObjBoundMethod>(self))
                 }
 
-                ObjType::OClass => write!(f, "{}", std::mem::transmute::<&Obj, &ObjClass>(self)),
-                ObjType::OClosure => {
+                ObjType::Class => write!(f, "{}", std::mem::transmute::<&Obj, &ObjClass>(self)),
+                ObjType::Closure => {
                     write!(f, "{}", std::mem::transmute::<&Obj, &ObjClosure>(self))
                 }
-                ObjType::OFunction => {
+                ObjType::Function => {
                     write!(f, "{}", std::mem::transmute::<&Obj, &ObjFunction>(self))
                 }
-                ObjType::OInstance => {
+                ObjType::Instance => {
                     write!(f, "{}", std::mem::transmute::<&Obj, &ObjInstance>(self))
                 }
-                ObjType::ONative => write!(f, "<native fn>"),
-                ObjType::OString => write!(f, "{}", std::mem::transmute::<&Obj, &ObjString>(self)),
-                ObjType::OUpvalue => write!(f, "upvalue"),
+                ObjType::Native => write!(f, "<native fn>"),
+                ObjType::String => write!(f, "{}", std::mem::transmute::<&Obj, &ObjString>(self)),
+                ObjType::Upvalue => write!(f, "upvalue"),
             }
         }
     }
@@ -44,45 +44,45 @@ impl fmt::Display for Obj {
 
 pub fn print_object(obj: *const Obj) {
     match unsafe { obj.as_ref().unwrap() }.r#type {
-        ObjType::OBoundMethod => print_bound_method(obj as *const ObjBoundMethod),
-        ObjType::OClass => print_class(obj as *const ObjClass),
-        ObjType::OClosure => print_closure(obj as *const ObjClosure),
-        ObjType::OFunction => print_function(obj as *const ObjFunction),
-        ObjType::OInstance => print_instance(obj as *const ObjInstance),
-        ObjType::ONative => print!("<native fn>"),
-        ObjType::OString => print!("{}", unsafe { (obj as *const ObjString).as_ref().unwrap() }),
-        ObjType::OUpvalue => print!("upvalue"),
+        ObjType::BoundMethod => print_bound_method(obj as *const ObjBoundMethod),
+        ObjType::Class => print_class(obj as *const ObjClass),
+        ObjType::Closure => print_closure(obj as *const ObjClosure),
+        ObjType::Function => print_function(obj as *const ObjFunction),
+        ObjType::Instance => print_instance(obj as *const ObjInstance),
+        ObjType::Native => print!("<native fn>"),
+        ObjType::String => print!("{}", unsafe { (obj as *const ObjString).as_ref().unwrap() }),
+        ObjType::Upvalue => print!("upvalue"),
     }
 }
 
 impl Obj {
     pub(crate) fn free(obj: *const Obj, gc: &mut Gc) {
         match unsafe { obj.as_ref().unwrap() }.r#type {
-            ObjType::OBoundMethod => gc.free(obj as *mut ObjBoundMethod),
-            ObjType::OClass => {
+            ObjType::BoundMethod => gc.free(obj as *mut ObjBoundMethod),
+            ObjType::Class => {
                 let klass = obj as *mut ObjClass;
                 unsafe { klass.as_mut().unwrap() }.methods.free(gc);
                 gc.free(klass)
             }
-            ObjType::OClosure => gc.free(obj as *mut ObjClosure),
-            ObjType::OFunction => {
+            ObjType::Closure => gc.free(obj as *mut ObjClosure),
+            ObjType::Function => {
                 let function = obj as *mut ObjFunction;
                 unsafe { function.as_mut().unwrap() }.chunk.free(gc);
                 gc.free(function)
             }
-            ObjType::OInstance => {
+            ObjType::Instance => {
                 let instance = obj as *mut ObjInstance;
                 unsafe { instance.as_mut().unwrap() }.fields.free(gc);
                 gc.free(instance)
             }
-            ObjType::ONative => gc.free(obj as *mut ObjNative),
-            ObjType::OString => {
+            ObjType::Native => gc.free(obj as *mut ObjNative),
+            ObjType::String => {
                 let str = obj as *mut ObjString;
                 let str_ref = unsafe { str.as_mut().unwrap() };
                 gc.resize_array(str_ref.chars, str_ref.length + 1, 0);
                 gc.free(str)
             }
-            ObjType::OUpvalue => gc.free(obj as *mut ObjUpvalue),
+            ObjType::Upvalue => gc.free(obj as *mut ObjUpvalue),
         }
     }
 }
@@ -90,14 +90,14 @@ impl Obj {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ObjType {
-    OBoundMethod,
-    OClass,
-    OClosure,
-    OFunction,
-    OInstance,
-    ONative,
-    OString,
-    OUpvalue,
+    BoundMethod,
+    Class,
+    Closure,
+    Function,
+    Instance,
+    Native,
+    String,
+    Upvalue,
 }
 
 macro_rules! allocate_obj {
@@ -127,7 +127,7 @@ pub struct ObjBoundMethod {
 
 impl ObjBoundMethod {
     pub(crate) fn new(mut gc: Gc, receiver: Value, method: *mut ObjClosure) -> *mut Self {
-        let bound = allocate_obj!(gc, ObjBoundMethod, ObjType::OBoundMethod);
+        let bound = allocate_obj!(gc, ObjBoundMethod, ObjType::BoundMethod);
         unsafe {
             (*bound).receiver = receiver;
             (*bound).method = method;
@@ -156,7 +156,7 @@ pub struct ObjClass {
 
 impl ObjClass {
     pub(crate) fn new(mut gc: Gc, name: *mut ObjString) -> *mut ObjClass {
-        let klass = allocate_obj!(gc, ObjClass, ObjType::OClass);
+        let klass = allocate_obj!(gc, ObjClass, ObjType::Class);
         unsafe {
             (*klass).name = name;
             (*klass).methods.init();
@@ -198,7 +198,7 @@ impl ObjClosure {
             unsafe { (*upvalues.add(i)) = ptr::null_mut() };
         }
 
-        let closure = allocate_obj!(gc, ObjClosure, ObjType::OClosure);
+        let closure = allocate_obj!(gc, ObjClosure, ObjType::Closure);
         unsafe {
             (*closure).function = function;
             (*closure).upvalues = upvalues;
@@ -230,7 +230,7 @@ pub struct ObjFunction {
 
 impl ObjFunction {
     pub(crate) fn new(mut gc: Gc) -> *mut ObjFunction {
-        let function = allocate_obj!(gc, ObjFunction, ObjType::OFunction);
+        let function = allocate_obj!(gc, ObjFunction, ObjType::Function);
         unsafe {
             (*function).arity = 0;
             (*function).upvalue_count = 0;
@@ -278,7 +278,7 @@ pub struct ObjInstance {
 
 impl ObjInstance {
     pub(crate) fn new(mut gc: Gc, klass: *mut ObjClass) -> *mut ObjInstance {
-        let instance = allocate_obj!(gc, ObjInstance, ObjType::OInstance);
+        let instance = allocate_obj!(gc, ObjInstance, ObjType::Instance);
         unsafe {
             (*instance).klass = klass;
             (*instance).fields.init();
@@ -317,7 +317,7 @@ pub struct ObjNative {
 
 impl ObjNative {
     pub(crate) fn new(mut gc: Gc, func: NativeFn) -> *mut ObjNative {
-        let native = allocate_obj!(gc, ObjNative, ObjType::ONative);
+        let native = allocate_obj!(gc, ObjNative, ObjType::Native);
         unsafe { (*native).r#fn = func };
         native
     }
@@ -340,7 +340,7 @@ impl fmt::Display for ObjString {
 
 impl ObjString {
     pub(crate) fn allocate(mut gc: Gc, chars: *mut c_char, length: usize, hash: u32) -> *mut Self {
-        let str = allocate_obj!(gc, ObjString, ObjType::OString);
+        let str = allocate_obj!(gc, ObjString, ObjType::String);
         unsafe {
             (*str).length = length;
             (*str).chars = chars;
@@ -417,7 +417,7 @@ pub struct ObjUpvalue {
 
 impl ObjUpvalue {
     pub(crate) fn new(mut gc: Gc, location: *mut Value) -> *mut ObjUpvalue {
-        let upvalue = allocate_obj!(gc, ObjUpvalue, ObjType::OUpvalue);
+        let upvalue = allocate_obj!(gc, ObjUpvalue, ObjType::Upvalue);
         unsafe {
             (*upvalue).location = location;
             (*upvalue).closed = Value::nil();

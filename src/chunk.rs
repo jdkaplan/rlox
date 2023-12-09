@@ -128,46 +128,46 @@ impl Chunk {
         };
 
         match opcode {
-            op @ (Opcode::OpConstant
-            | Opcode::OpClass
-            | Opcode::OpMethod
-            | Opcode::OpDefineGlobal
-            | Opcode::OpGetGlobal
-            | Opcode::OpSetGlobal
-            | Opcode::OpGetProperty
-            | Opcode::OpSetProperty
-            | Opcode::OpGetSuper) => self.constant_instruction(op, offset),
+            op @ (Opcode::Constant
+            | Opcode::Class
+            | Opcode::Method
+            | Opcode::DefineGlobal
+            | Opcode::GetGlobal
+            | Opcode::SetGlobal
+            | Opcode::GetProperty
+            | Opcode::SetProperty
+            | Opcode::GetSuper) => self.constant_instruction(op, offset),
 
-            op @ (Opcode::OpGetLocal
-            | Opcode::OpSetLocal
-            | Opcode::OpGetUpvalue
-            | Opcode::OpSetUpvalue
-            | Opcode::OpCall) => self.byte_instruction(op, offset),
+            op @ (Opcode::GetLocal
+            | Opcode::SetLocal
+            | Opcode::GetUpvalue
+            | Opcode::SetUpvalue
+            | Opcode::Call) => self.byte_instruction(op, offset),
 
-            op @ (Opcode::OpJump | Opcode::OpJumpIfFalse) => self.jump_instruction(op, offset),
-            op @ Opcode::OpLoop => self.loop_instruction(op, offset),
+            op @ (Opcode::Jump | Opcode::JumpIfFalse) => self.jump_instruction(op, offset),
+            op @ Opcode::Loop => self.loop_instruction(op, offset),
 
-            op @ (Opcode::OpNil
-            | Opcode::OpTrue
-            | Opcode::OpFalse
-            | Opcode::OpPop
-            | Opcode::OpEqual
-            | Opcode::OpGreater
-            | Opcode::OpLess
-            | Opcode::OpNot
-            | Opcode::OpNeg
-            | Opcode::OpAdd
-            | Opcode::OpSub
-            | Opcode::OpMul
-            | Opcode::OpDiv
-            | Opcode::OpPrint
-            | Opcode::OpCloseUpvalue
-            | Opcode::OpReturn
-            | Opcode::OpInherit) => self.simple_instruction(op, offset),
+            op @ (Opcode::Nil
+            | Opcode::True
+            | Opcode::False
+            | Opcode::Pop
+            | Opcode::Equal
+            | Opcode::Greater
+            | Opcode::Less
+            | Opcode::Not
+            | Opcode::Neg
+            | Opcode::Add
+            | Opcode::Sub
+            | Opcode::Mul
+            | Opcode::Div
+            | Opcode::Print
+            | Opcode::CloseUpvalue
+            | Opcode::Return
+            | Opcode::Inherit) => self.simple_instruction(op, offset),
 
-            op @ (Opcode::OpInvoke | Opcode::OpSuperInvoke) => self.invoke_instruction(op, offset),
+            op @ (Opcode::Invoke | Opcode::SuperInvoke) => self.invoke_instruction(op, offset),
 
-            op @ Opcode::OpClosure => self.closure_instruction(op, offset),
+            op @ Opcode::Closure => self.closure_instruction(op, offset),
         }
     }
 
@@ -261,52 +261,52 @@ impl Chunk {
 #[derive(Debug, PartialEq, Eq)]
 #[repr(C)]
 pub enum Opcode {
-    OpConstant,
+    Constant,
 
-    OpNil,
-    OpTrue,
-    OpFalse,
+    Nil,
+    True,
+    False,
 
-    OpPop,
+    Pop,
 
-    OpGetLocal,
-    OpSetLocal,
-    OpDefineGlobal,
-    OpGetGlobal,
-    OpSetGlobal,
-    OpGetUpvalue,
-    OpSetUpvalue,
-    OpGetProperty,
-    OpSetProperty,
-    OpGetSuper,
+    GetLocal,
+    SetLocal,
+    DefineGlobal,
+    GetGlobal,
+    SetGlobal,
+    GetUpvalue,
+    SetUpvalue,
+    GetProperty,
+    SetProperty,
+    GetSuper,
 
-    OpNot,
-    OpEqual,
-    OpGreater,
-    OpLess,
+    Not,
+    Equal,
+    Greater,
+    Less,
     // TODO: The other three _are_ needed to handle NaN properly.
-    OpNeg,
-    OpAdd,
-    OpSub,
-    OpMul,
-    OpDiv,
+    Neg,
+    Add,
+    Sub,
+    Mul,
+    Div,
 
-    OpPrint,
+    Print,
 
-    OpJump,
-    OpJumpIfFalse,
-    OpLoop,
+    Jump,
+    JumpIfFalse,
+    Loop,
 
-    OpCall,
-    OpInvoke,
-    OpSuperInvoke,
-    OpClosure,
-    OpCloseUpvalue,
-    OpReturn,
+    Call,
+    Invoke,
+    SuperInvoke,
+    Closure,
+    CloseUpvalue,
+    Return,
 
-    OpClass,
-    OpInherit,
-    OpMethod,
+    Class,
+    Inherit,
+    Method,
 }
 
 pub struct InvalidOpcode {
@@ -324,51 +324,51 @@ impl TryFrom<u8> for Opcode {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         let v = match value {
-            v if v == Opcode::OpConstant as u8 => Opcode::OpConstant,
-            v if v == Opcode::OpNil as u8 => Opcode::OpNil,
-            v if v == Opcode::OpTrue as u8 => Opcode::OpTrue,
-            v if v == Opcode::OpFalse as u8 => Opcode::OpFalse,
+            v if v == Opcode::Constant as u8 => Opcode::Constant,
+            v if v == Opcode::Nil as u8 => Opcode::Nil,
+            v if v == Opcode::True as u8 => Opcode::True,
+            v if v == Opcode::False as u8 => Opcode::False,
 
-            v if v == Opcode::OpPop as u8 => Opcode::OpPop,
+            v if v == Opcode::Pop as u8 => Opcode::Pop,
 
-            v if v == Opcode::OpGetLocal as u8 => Opcode::OpGetLocal,
-            v if v == Opcode::OpSetLocal as u8 => Opcode::OpSetLocal,
-            v if v == Opcode::OpDefineGlobal as u8 => Opcode::OpDefineGlobal,
-            v if v == Opcode::OpGetGlobal as u8 => Opcode::OpGetGlobal,
-            v if v == Opcode::OpSetGlobal as u8 => Opcode::OpSetGlobal,
-            v if v == Opcode::OpGetUpvalue as u8 => Opcode::OpGetUpvalue,
-            v if v == Opcode::OpSetUpvalue as u8 => Opcode::OpSetUpvalue,
-            v if v == Opcode::OpGetProperty as u8 => Opcode::OpGetProperty,
-            v if v == Opcode::OpSetProperty as u8 => Opcode::OpSetProperty,
-            v if v == Opcode::OpGetSuper as u8 => Opcode::OpGetSuper,
+            v if v == Opcode::GetLocal as u8 => Opcode::GetLocal,
+            v if v == Opcode::SetLocal as u8 => Opcode::SetLocal,
+            v if v == Opcode::DefineGlobal as u8 => Opcode::DefineGlobal,
+            v if v == Opcode::GetGlobal as u8 => Opcode::GetGlobal,
+            v if v == Opcode::SetGlobal as u8 => Opcode::SetGlobal,
+            v if v == Opcode::GetUpvalue as u8 => Opcode::GetUpvalue,
+            v if v == Opcode::SetUpvalue as u8 => Opcode::SetUpvalue,
+            v if v == Opcode::GetProperty as u8 => Opcode::GetProperty,
+            v if v == Opcode::SetProperty as u8 => Opcode::SetProperty,
+            v if v == Opcode::GetSuper as u8 => Opcode::GetSuper,
 
-            v if v == Opcode::OpNot as u8 => Opcode::OpNot,
-            v if v == Opcode::OpEqual as u8 => Opcode::OpEqual,
-            v if v == Opcode::OpGreater as u8 => Opcode::OpGreater,
-            v if v == Opcode::OpLess as u8 => Opcode::OpLess,
+            v if v == Opcode::Not as u8 => Opcode::Not,
+            v if v == Opcode::Equal as u8 => Opcode::Equal,
+            v if v == Opcode::Greater as u8 => Opcode::Greater,
+            v if v == Opcode::Less as u8 => Opcode::Less,
 
-            v if v == Opcode::OpNeg as u8 => Opcode::OpNeg,
-            v if v == Opcode::OpAdd as u8 => Opcode::OpAdd,
-            v if v == Opcode::OpSub as u8 => Opcode::OpSub,
-            v if v == Opcode::OpMul as u8 => Opcode::OpMul,
-            v if v == Opcode::OpDiv as u8 => Opcode::OpDiv,
+            v if v == Opcode::Neg as u8 => Opcode::Neg,
+            v if v == Opcode::Add as u8 => Opcode::Add,
+            v if v == Opcode::Sub as u8 => Opcode::Sub,
+            v if v == Opcode::Mul as u8 => Opcode::Mul,
+            v if v == Opcode::Div as u8 => Opcode::Div,
 
-            v if v == Opcode::OpPrint as u8 => Opcode::OpPrint,
+            v if v == Opcode::Print as u8 => Opcode::Print,
 
-            v if v == Opcode::OpJump as u8 => Opcode::OpJump,
-            v if v == Opcode::OpJumpIfFalse as u8 => Opcode::OpJumpIfFalse,
-            v if v == Opcode::OpLoop as u8 => Opcode::OpLoop,
+            v if v == Opcode::Jump as u8 => Opcode::Jump,
+            v if v == Opcode::JumpIfFalse as u8 => Opcode::JumpIfFalse,
+            v if v == Opcode::Loop as u8 => Opcode::Loop,
 
-            v if v == Opcode::OpCall as u8 => Opcode::OpCall,
-            v if v == Opcode::OpInvoke as u8 => Opcode::OpInvoke,
-            v if v == Opcode::OpSuperInvoke as u8 => Opcode::OpSuperInvoke,
-            v if v == Opcode::OpClosure as u8 => Opcode::OpClosure,
-            v if v == Opcode::OpCloseUpvalue as u8 => Opcode::OpCloseUpvalue,
-            v if v == Opcode::OpReturn as u8 => Opcode::OpReturn,
+            v if v == Opcode::Call as u8 => Opcode::Call,
+            v if v == Opcode::Invoke as u8 => Opcode::Invoke,
+            v if v == Opcode::SuperInvoke as u8 => Opcode::SuperInvoke,
+            v if v == Opcode::Closure as u8 => Opcode::Closure,
+            v if v == Opcode::CloseUpvalue as u8 => Opcode::CloseUpvalue,
+            v if v == Opcode::Return as u8 => Opcode::Return,
 
-            v if v == Opcode::OpClass as u8 => Opcode::OpClass,
-            v if v == Opcode::OpInherit as u8 => Opcode::OpInherit,
-            v if v == Opcode::OpMethod as u8 => Opcode::OpMethod,
+            v if v == Opcode::Class as u8 => Opcode::Class,
+            v if v == Opcode::Inherit as u8 => Opcode::Inherit,
+            v if v == Opcode::Method as u8 => Opcode::Method,
 
             opcode => return Err(InvalidOpcode { opcode }),
         };

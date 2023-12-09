@@ -49,10 +49,10 @@ pub struct Compiler {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum FunctionMode {
-    ModeFunction,
-    ModeInitializer,
-    ModeMethod,
-    ModeScript,
+    Function,
+    Initializer,
+    Method,
+    Script,
 }
 
 #[repr(C)]
@@ -81,9 +81,9 @@ pub(crate) fn compile(vm: *mut Vm, source: *const c_char) -> *mut ObjFunction {
     let mut parser = Parser::new(&mut scanner, vm);
 
     let mut c = MaybeUninit::uninit();
-    parser.compiler_init(c.as_mut_ptr(), FunctionMode::ModeScript);
+    parser.compiler_init(c.as_mut_ptr(), FunctionMode::Script);
 
-    while !parser.match_(TokenType::TokenEof) {
+    while !parser.match_(TokenType::Eof) {
         parser.declaration();
     }
 
@@ -130,7 +130,7 @@ impl Parser {
 
         local.depth = 0;
         local.is_captured = false;
-        if mode != FunctionMode::ModeFunction {
+        if mode != FunctionMode::Function {
             // local.name = Token::synthetic(&THIS_STR);
             local.name.start = THIS_STR.as_ptr();
             local.name.length = 4;
@@ -190,8 +190,8 @@ impl Parser {
     pub(crate) fn format_error(token: &Token, msg: &str) -> String {
         let line = token.line;
         let loc = match token.r#type {
-            TokenType::TokenEof => Some(String::from("end")),
-            TokenType::TokenError => None, // No location info for synthetic token
+            TokenType::Eof => Some(String::from("end")),
+            TokenType::Error => None, // No location info for synthetic token
             _ => Some(format!("'{}'", token.text())),
         };
 
@@ -217,7 +217,7 @@ impl Parser {
         loop {
             self.current = unsafe { &mut *self.scanner }.next_token();
 
-            if self.current.r#type != TokenType::TokenError {
+            if self.current.r#type != TokenType::Error {
                 break;
             }
 
@@ -249,20 +249,20 @@ impl Parser {
     pub(crate) fn synchronize(&mut self) {
         self.panicking = false;
 
-        while self.current.r#type != TokenType::TokenEof {
-            if self.previous.r#type == TokenType::TokenSemicolon {
+        while self.current.r#type != TokenType::Eof {
+            if self.previous.r#type == TokenType::Semicolon {
                 return;
             }
 
             match self.current.r#type {
-                TokenType::TokenClass
-                | TokenType::TokenFun
-                | TokenType::TokenVar
-                | TokenType::TokenFor
-                | TokenType::TokenIf
-                | TokenType::TokenWhile
-                | TokenType::TokenPrint
-                | TokenType::TokenReturn => return,
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
 
                 _ => self.advance(),
             }
@@ -294,7 +294,7 @@ impl Parser {
     }
 
     pub(crate) fn emit_loop(&mut self, start: c_uint) {
-        self.emit_byte(Opcode::OpLoop);
+        self.emit_byte(Opcode::Loop);
 
         let offset = self.current_chunk().code.len() - start + 2;
         if offset > u16::MAX.into() {
@@ -326,17 +326,17 @@ impl Parser {
     }
 
     pub(crate) fn emit_return(&mut self) {
-        if unsafe { self.compiler.as_mut().unwrap() }.mode == FunctionMode::ModeInitializer {
-            self.emit_bytes(Opcode::OpGetLocal, 0);
+        if unsafe { self.compiler.as_mut().unwrap() }.mode == FunctionMode::Initializer {
+            self.emit_bytes(Opcode::GetLocal, 0);
         } else {
-            self.emit_byte(Opcode::OpNil);
+            self.emit_byte(Opcode::Nil);
         }
-        self.emit_byte(Opcode::OpReturn);
+        self.emit_byte(Opcode::Return);
     }
 
     pub(crate) fn emit_constant(&mut self, value: Value) {
         let constant = self.make_constant(value);
-        self.emit_bytes(Opcode::OpConstant, constant);
+        self.emit_bytes(Opcode::Constant, constant);
     }
 
     pub(crate) fn make_constant(&mut self, value: Value) -> u8 {
@@ -366,9 +366,9 @@ impl Parser {
             && compiler.locals[compiler.local_count as usize - 1].depth > compiler.scope_depth
         {
             if compiler.locals[compiler.local_count as usize - 1].is_captured {
-                self.emit_byte(Opcode::OpCloseUpvalue);
+                self.emit_byte(Opcode::CloseUpvalue);
             } else {
-                self.emit_byte(Opcode::OpPop);
+                self.emit_byte(Opcode::Pop);
             }
             compiler.local_count -= 1;
         }
@@ -517,7 +517,7 @@ impl Parser {
     }
 
     pub(crate) fn parse_variable(&mut self, msg: &str) -> u8 {
-        self.consume(TokenType::TokenIdentifier, msg);
+        self.consume(TokenType::Identifier, msg);
 
         self.declare_variable();
 
@@ -536,7 +536,7 @@ impl Parser {
             // No runtime code to execute! The value is already in the stack slot.
             return;
         }
-        self.emit_bytes(Opcode::OpDefineGlobal, global);
+        self.emit_bytes(Opcode::DefineGlobal, global);
     }
 }
 
@@ -608,7 +608,7 @@ impl Precedence {
 impl Parser {
     pub(crate) fn argument_list(&mut self) -> u8 {
         let mut argc: u32 = 0;
-        if !self.check(TokenType::TokenRightParen) {
+        if !self.check(TokenType::RightParen) {
             loop {
                 self.expression();
                 if argc == u8::MAX.into() {
@@ -617,13 +617,13 @@ impl Parser {
 
                 argc += 1;
 
-                if !self.match_(TokenType::TokenComma) {
+                if !self.match_(TokenType::Comma) {
                     break;
                 }
             }
         }
 
-        self.consume(TokenType::TokenRightParen, "Expect ')' after arguments.");
+        self.consume(TokenType::RightParen, "Expect ')' after arguments.");
         argc as u8
     }
 
@@ -636,19 +636,19 @@ impl Parser {
 
         if let Some(arg) = self.resolve_local(compiler, name) {
             slot = arg as u8;
-            op_get = Opcode::OpGetLocal;
-            op_set = Opcode::OpSetLocal;
+            op_get = Opcode::GetLocal;
+            op_set = Opcode::SetLocal;
         } else if let Some(arg) = self.resolve_upvalue(compiler, name) {
             slot = arg as u8;
-            op_get = Opcode::OpGetUpvalue;
-            op_set = Opcode::OpSetUpvalue;
+            op_get = Opcode::GetUpvalue;
+            op_set = Opcode::SetUpvalue;
         } else {
             slot = self.identifier_constant(name);
-            op_get = Opcode::OpGetGlobal;
-            op_set = Opcode::OpSetGlobal;
+            op_get = Opcode::GetGlobal;
+            op_set = Opcode::SetGlobal;
         }
 
-        if can_assign && self.match_(TokenType::TokenEqual) {
+        if can_assign && self.match_(TokenType::Equal) {
             self.expression();
             self.emit_bytes(op_set, slot)
         } else {
@@ -661,9 +661,9 @@ pub(crate) fn and_(parser: &mut Parser, _can_assign: bool) {
     // [ a ]
 
     // jump_false_peek end
-    let end_jump = parser.emit_jump(Opcode::OpJumpIfFalse);
+    let end_jump = parser.emit_jump(Opcode::JumpIfFalse);
     // pop a
-    parser.emit_byte(Opcode::OpPop);
+    parser.emit_byte(Opcode::Pop);
     // <b>
     parser.parse_precedence(Precedence::And);
     // end:
@@ -678,13 +678,13 @@ pub(crate) fn or_(parser: &mut Parser, _can_assign: bool) {
     // [ a ]
 
     // jump_false_peek else
-    let else_jump = parser.emit_jump(Opcode::OpJumpIfFalse);
+    let else_jump = parser.emit_jump(Opcode::JumpIfFalse);
     // jump end
-    let end_jump = parser.emit_jump(Opcode::OpJump);
+    let end_jump = parser.emit_jump(Opcode::Jump);
     // else:
     parser.patch_jump(else_jump);
     // pop a
-    parser.emit_byte(Opcode::OpPop);
+    parser.emit_byte(Opcode::Pop);
     // <b>
     parser.parse_precedence(Precedence::Or);
     // end:
@@ -699,17 +699,17 @@ pub(crate) fn binary(parser: &mut Parser, _can_assign: bool) {
     parser.parse_precedence(rule.precedence.plus_one());
 
     match op {
-        TokenType::TokenPlus => parser.emit_byte(Opcode::OpAdd),
-        TokenType::TokenMinus => parser.emit_byte(Opcode::OpSub),
-        TokenType::TokenStar => parser.emit_byte(Opcode::OpMul),
-        TokenType::TokenSlash => parser.emit_byte(Opcode::OpDiv),
+        TokenType::Plus => parser.emit_byte(Opcode::Add),
+        TokenType::Minus => parser.emit_byte(Opcode::Sub),
+        TokenType::Star => parser.emit_byte(Opcode::Mul),
+        TokenType::Slash => parser.emit_byte(Opcode::Div),
 
-        TokenType::TokenBangEqual => parser.emit_bytes(Opcode::OpEqual, Opcode::OpNot),
-        TokenType::TokenEqualEqual => parser.emit_byte(Opcode::OpEqual),
-        TokenType::TokenGreater => parser.emit_byte(Opcode::OpGreater),
-        TokenType::TokenGreaterEqual => parser.emit_bytes(Opcode::OpLess, Opcode::OpNot),
-        TokenType::TokenLess => parser.emit_byte(Opcode::OpLess),
-        TokenType::TokenLessEqual => parser.emit_bytes(Opcode::OpGreater, Opcode::OpNot),
+        TokenType::BangEqual => parser.emit_bytes(Opcode::Equal, Opcode::Not),
+        TokenType::EqualEqual => parser.emit_byte(Opcode::Equal),
+        TokenType::Greater => parser.emit_byte(Opcode::Greater),
+        TokenType::GreaterEqual => parser.emit_bytes(Opcode::Less, Opcode::Not),
+        TokenType::Less => parser.emit_byte(Opcode::Less),
+        TokenType::LessEqual => parser.emit_bytes(Opcode::Greater, Opcode::Not),
 
         _ => unreachable!(),
     }
@@ -717,40 +717,37 @@ pub(crate) fn binary(parser: &mut Parser, _can_assign: bool) {
 
 pub(crate) fn call(parser: &mut Parser, _can_assign: bool) {
     let argc = parser.argument_list();
-    parser.emit_bytes(Opcode::OpCall, argc);
+    parser.emit_bytes(Opcode::Call, argc);
 }
 
 pub(crate) fn dot(parser: &mut Parser, can_assign: bool) {
-    parser.consume(
-        TokenType::TokenIdentifier,
-        "Expect property name after '.'.",
-    );
+    parser.consume(TokenType::Identifier, "Expect property name after '.'.");
     let name = parser.identifier_constant(&parser.previous);
 
-    if can_assign && parser.match_(TokenType::TokenEqual) {
+    if can_assign && parser.match_(TokenType::Equal) {
         parser.expression();
-        parser.emit_bytes(Opcode::OpSetProperty, name);
-    } else if parser.match_(TokenType::TokenLeftParen) {
+        parser.emit_bytes(Opcode::SetProperty, name);
+    } else if parser.match_(TokenType::LeftParen) {
         let argc = parser.argument_list();
-        parser.emit_bytes(Opcode::OpInvoke, name);
+        parser.emit_bytes(Opcode::Invoke, name);
         parser.emit_byte(argc);
     } else {
-        parser.emit_bytes(Opcode::OpGetProperty, name);
+        parser.emit_bytes(Opcode::GetProperty, name);
     }
 }
 
 pub(crate) fn literal(parser: &mut Parser, _can_assign: bool) {
     match parser.previous.r#type {
-        TokenType::TokenFalse => parser.emit_byte(Opcode::OpFalse),
-        TokenType::TokenTrue => parser.emit_byte(Opcode::OpTrue),
-        TokenType::TokenNil => parser.emit_byte(Opcode::OpNil),
+        TokenType::False => parser.emit_byte(Opcode::False),
+        TokenType::True => parser.emit_byte(Opcode::True),
+        TokenType::Nil => parser.emit_byte(Opcode::Nil),
         _ => unreachable!(),
     }
 }
 
 pub(crate) fn group(parser: &mut Parser, _can_assign: bool) {
     parser.expression();
-    parser.consume(TokenType::TokenRightParen, "Expect ')' after expression.");
+    parser.consume(TokenType::RightParen, "Expect ')' after expression.");
 }
 
 pub(crate) fn number(parser: &mut Parser, _can_assign: bool) {
@@ -784,20 +781,20 @@ pub(crate) fn super_(parser: &mut Parser, _can_assign: bool) {
         parser.error("Can't use 'super' in a class with no superclass.");
     }
 
-    parser.consume(TokenType::TokenDot, "Expect '.' after 'super'.");
-    parser.consume(TokenType::TokenIdentifier, "Expect superclass method name.");
+    parser.consume(TokenType::Dot, "Expect '.' after 'super'.");
+    parser.consume(TokenType::Identifier, "Expect superclass method name.");
     let name = parser.identifier_constant(&parser.previous);
 
     parser.named_variable(&Token::synthetic(&THIS_STR), false);
 
-    if parser.match_(TokenType::TokenLeftParen) {
+    if parser.match_(TokenType::LeftParen) {
         let argc = parser.argument_list();
         parser.named_variable(&Token::synthetic(&SUPER_STR), false);
-        parser.emit_bytes(Opcode::OpSuperInvoke, name);
+        parser.emit_bytes(Opcode::SuperInvoke, name);
         parser.emit_byte(argc);
     } else {
         parser.named_variable(&Token::synthetic(&SUPER_STR), false);
-        parser.emit_bytes(Opcode::OpGetSuper, name);
+        parser.emit_bytes(Opcode::GetSuper, name);
     }
 }
 
@@ -816,19 +813,19 @@ pub(crate) fn unary(parser: &mut Parser, _can_assign: bool) {
     parser.parse_precedence(Precedence::Unary);
 
     match op {
-        TokenType::TokenBang => parser.emit_byte(Opcode::OpNot),
-        TokenType::TokenMinus => parser.emit_byte(Opcode::OpNeg),
+        TokenType::Bang => parser.emit_byte(Opcode::Not),
+        TokenType::Minus => parser.emit_byte(Opcode::Neg),
         _ => unreachable!(),
     }
 }
 
 impl Parser {
     pub(crate) fn declaration(&mut self) {
-        if self.match_(TokenType::TokenClass) {
+        if self.match_(TokenType::Class) {
             self.decl_class();
-        } else if self.match_(TokenType::TokenFun) {
+        } else if self.match_(TokenType::Fun) {
             self.decl_fun();
-        } else if self.match_(TokenType::TokenVar) {
+        } else if self.match_(TokenType::Var) {
             self.decl_var();
         } else {
             self.statement();
@@ -840,17 +837,17 @@ impl Parser {
     }
 
     pub(crate) fn statement(&mut self) {
-        if self.match_(TokenType::TokenIf) {
+        if self.match_(TokenType::If) {
             self.stmt_if();
-        } else if self.match_(TokenType::TokenFor) {
+        } else if self.match_(TokenType::For) {
             self.stmt_for();
-        } else if self.match_(TokenType::TokenPrint) {
+        } else if self.match_(TokenType::Print) {
             self.stmt_print();
-        } else if self.match_(TokenType::TokenReturn) {
+        } else if self.match_(TokenType::Return) {
             self.stmt_return();
-        } else if self.match_(TokenType::TokenWhile) {
+        } else if self.match_(TokenType::While) {
             self.stmt_while();
-        } else if self.match_(TokenType::TokenLeftBrace) {
+        } else if self.match_(TokenType::LeftBrace) {
             self.scope_begin();
             self.block();
             self.scope_end();
@@ -881,19 +878,19 @@ impl Parser {
             infix(self, can_assign);
         }
 
-        if can_assign && self.match_(TokenType::TokenEqual) {
+        if can_assign && self.match_(TokenType::Equal) {
             self.error("Invalid assignment target.");
         }
     }
 
     pub(crate) fn decl_class(&mut self) {
-        self.consume(TokenType::TokenIdentifier, "Expect class name.");
+        self.consume(TokenType::Identifier, "Expect class name.");
         let class_name = self.previous;
 
         let name_constant = self.identifier_constant(&class_name);
         self.declare_variable();
 
-        self.emit_bytes(Opcode::OpClass, name_constant);
+        self.emit_bytes(Opcode::Class, name_constant);
         self.define_variable(name_constant);
 
         let klass = ClassCompiler {
@@ -902,8 +899,8 @@ impl Parser {
         };
         self.klass = Box::into_raw(Box::new(klass));
 
-        if self.match_(TokenType::TokenLess) {
-            self.consume(TokenType::TokenIdentifier, "Expect superclass name.");
+        if self.match_(TokenType::Less) {
+            self.consume(TokenType::Identifier, "Expect superclass name.");
             variable(self, false);
 
             if identifiers_equal(&class_name, &self.previous) {
@@ -915,19 +912,19 @@ impl Parser {
             self.define_variable(0);
 
             self.named_variable(&class_name, false);
-            self.emit_byte(Opcode::OpInherit);
+            self.emit_byte(Opcode::Inherit);
 
             unsafe { self.klass.as_mut().unwrap() }.has_superclass = true;
         }
 
         self.named_variable(&class_name, false);
 
-        self.consume(TokenType::TokenLeftBrace, "Expect '{' before class body.");
-        while !self.check(TokenType::TokenRightBrace) && !self.check(TokenType::TokenEof) {
+        self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
             self.method();
         }
-        self.consume(TokenType::TokenRightBrace, "Expect '}' after class body.");
-        self.emit_byte(Opcode::OpPop); // class
+        self.consume(TokenType::RightBrace, "Expect '}' after class body.");
+        self.emit_byte(Opcode::Pop); // class
 
         let klass = unsafe { Box::from_raw(self.klass) };
         if klass.has_superclass {
@@ -937,18 +934,18 @@ impl Parser {
     }
 
     pub(crate) fn method(&mut self) {
-        self.consume(TokenType::TokenIdentifier, "Expect method name.");
+        self.consume(TokenType::Identifier, "Expect method name.");
         let constant = self.identifier_constant(&self.previous);
 
         let mode = if self.previous.text() == "init" {
-            FunctionMode::ModeInitializer
+            FunctionMode::Initializer
         } else {
-            FunctionMode::ModeMethod
+            FunctionMode::Method
         };
 
         self.function(mode);
 
-        self.emit_bytes(Opcode::OpMethod, constant);
+        self.emit_bytes(Opcode::Method, constant);
     }
 
     pub(crate) fn decl_fun(&mut self) {
@@ -957,7 +954,7 @@ impl Parser {
         // Allow the function's name to be used within its body to support recursion.
         (unsafe { self.compiler.as_mut().unwrap() }).mark_initialized();
 
-        self.function(FunctionMode::ModeFunction);
+        self.function(FunctionMode::Function);
 
         self.define_variable(global);
     }
@@ -965,13 +962,13 @@ impl Parser {
     pub(crate) fn decl_var(&mut self) {
         let global = self.parse_variable("Expect variable name.");
 
-        if self.match_(TokenType::TokenEqual) {
+        if self.match_(TokenType::Equal) {
             self.expression();
         } else {
-            self.emit_byte(Opcode::OpNil);
+            self.emit_byte(Opcode::Nil);
         }
         self.consume(
-            TokenType::TokenSemicolon,
+            TokenType::Semicolon,
             "Expect ';' after variable declaration.",
         );
 
@@ -980,35 +977,35 @@ impl Parser {
 
     pub(crate) fn stmt_expr(&mut self) {
         self.expression();
-        self.consume(TokenType::TokenSemicolon, "Expect ';' after expression.");
-        self.emit_byte(Opcode::OpPop);
+        self.consume(TokenType::Semicolon, "Expect ';' after expression.");
+        self.emit_byte(Opcode::Pop);
     }
 
     pub(crate) fn stmt_if(&mut self) {
         // <cond>
-        self.consume(TokenType::TokenLeftParen, "Expect '(' after 'if'.");
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.");
         self.expression();
-        self.consume(TokenType::TokenRightParen, "Expect ')' after condition.");
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
 
         // jump_false_peek else
-        let then_jump = self.emit_jump(Opcode::OpJumpIfFalse);
+        let then_jump = self.emit_jump(Opcode::JumpIfFalse);
         // pop cond
-        self.emit_byte(Opcode::OpPop);
+        self.emit_byte(Opcode::Pop);
         // <conseq>
         self.statement();
 
         // TODO: Avoid the double-jump if no else branch.
 
         // jump out
-        let else_jump = self.emit_jump(Opcode::OpJump);
+        let else_jump = self.emit_jump(Opcode::Jump);
 
         // else:
         self.patch_jump(then_jump);
         // pop cond
-        self.emit_byte(Opcode::OpPop);
+        self.emit_byte(Opcode::Pop);
 
         // <alt>
-        if self.match_(TokenType::TokenElse) {
+        if self.match_(TokenType::Else) {
             self.statement();
         }
         // out:
@@ -1018,12 +1015,12 @@ impl Parser {
     pub(crate) fn stmt_for(&mut self) {
         self.scope_begin();
 
-        self.consume(TokenType::TokenLeftParen, "Expect '(' after 'for'.");
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.");
 
         // <init>
-        if self.match_(TokenType::TokenSemicolon) {
+        if self.match_(TokenType::Semicolon) {
             // No init
-        } else if self.match_(TokenType::TokenVar) {
+        } else if self.match_(TokenType::Var) {
             self.decl_var();
         } else {
             self.stmt_expr();
@@ -1036,36 +1033,30 @@ impl Parser {
         let mut exit_jump = 0;
 
         // <cond>
-        if !self.match_(TokenType::TokenSemicolon) {
+        if !self.match_(TokenType::Semicolon) {
             self.expression();
-            self.consume(
-                TokenType::TokenSemicolon,
-                "Expect ';' after for loop condition.",
-            );
+            self.consume(TokenType::Semicolon, "Expect ';' after for loop condition.");
 
             // jump_false_peek exit
-            exit_jump = self.emit_jump(Opcode::OpJumpIfFalse);
+            exit_jump = self.emit_jump(Opcode::JumpIfFalse);
             has_exit = true;
 
             // pop cond
-            self.emit_byte(Opcode::OpPop);
+            self.emit_byte(Opcode::Pop);
         }
 
-        if !self.match_(TokenType::TokenRightParen) {
+        if !self.match_(TokenType::RightParen) {
             // jump body
-            let body_jump = self.emit_jump(Opcode::OpJump);
+            let body_jump = self.emit_jump(Opcode::Jump);
 
             // incr:
             let incr_start = self.current_chunk().code.len();
             // <next>
             self.expression();
             // pop next
-            self.emit_byte(Opcode::OpPop);
+            self.emit_byte(Opcode::Pop);
 
-            self.consume(
-                TokenType::TokenRightParen,
-                "Expect ')' after for loop clauses.",
-            );
+            self.consume(TokenType::RightParen, "Expect ')' after for loop clauses.");
 
             // jump start
             self.emit_loop(loop_start);
@@ -1083,7 +1074,7 @@ impl Parser {
         if has_exit {
             self.patch_jump(exit_jump);
             // pop cond
-            self.emit_byte(Opcode::OpPop);
+            self.emit_byte(Opcode::Pop);
         }
 
         self.scope_end();
@@ -1091,27 +1082,27 @@ impl Parser {
 
     pub(crate) fn stmt_print(&mut self) {
         self.expression();
-        self.consume(TokenType::TokenSemicolon, "Expect ';' after value.");
-        self.emit_byte(Opcode::OpPrint);
+        self.consume(TokenType::Semicolon, "Expect ';' after value.");
+        self.emit_byte(Opcode::Print);
     }
 
     pub(crate) fn stmt_return(&mut self) {
         let mode = unsafe { self.compiler.as_ref().unwrap() }.mode;
-        if mode == FunctionMode::ModeScript {
+        if mode == FunctionMode::Script {
             self.error("Can't return from top-level code.");
         }
 
-        if self.match_(TokenType::TokenSemicolon) {
+        if self.match_(TokenType::Semicolon) {
             self.emit_return();
         } else {
-            if mode == FunctionMode::ModeInitializer {
+            if mode == FunctionMode::Initializer {
                 self.error("Can't return a value from an initializer.");
                 // Continue compiling the expression anyway to let the parser re-sync.
             }
 
             self.expression();
-            self.consume(TokenType::TokenSemicolon, "Expect ';' after return value.");
-            self.emit_byte(Opcode::OpReturn);
+            self.consume(TokenType::Semicolon, "Expect ';' after return value.");
+            self.emit_byte(Opcode::Return);
         }
     }
 
@@ -1119,14 +1110,14 @@ impl Parser {
         // start:
         let loop_start = self.current_chunk().code.len();
         // <cond>
-        self.consume(TokenType::TokenLeftParen, "Expect '(' after 'while'.");
+        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
         self.expression();
-        self.consume(TokenType::TokenRightParen, "Expect ')' after condition.");
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
 
         // jump_false_peek exit
-        let exit_jump = self.emit_jump(Opcode::OpJumpIfFalse);
+        let exit_jump = self.emit_jump(Opcode::JumpIfFalse);
         // pop cond
-        self.emit_byte(Opcode::OpPop);
+        self.emit_byte(Opcode::Pop);
         // <body>
         self.statement();
         // jump start
@@ -1134,15 +1125,15 @@ impl Parser {
         // exit:
         self.patch_jump(exit_jump);
         // pop cond
-        self.emit_byte(Opcode::OpPop);
+        self.emit_byte(Opcode::Pop);
     }
 
     pub(crate) fn block(&mut self) {
-        while !self.check(TokenType::TokenRightBrace) && !self.check(TokenType::TokenEof) {
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
             self.declaration();
         }
 
-        self.consume(TokenType::TokenRightBrace, "Expect '}' after block.");
+        self.consume(TokenType::RightBrace, "Expect '}' after block.");
     }
 
     pub(crate) fn function(&mut self, mode: FunctionMode) {
@@ -1154,15 +1145,15 @@ impl Parser {
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
 
         let function = unsafe { compiler.function.as_mut().unwrap() };
-        if mode != FunctionMode::ModeScript {
+        if mode != FunctionMode::Script {
             function.name =
                 ObjString::from_borrowed(gc, self.previous.start, self.previous.length as usize);
         }
 
         self.scope_begin();
 
-        self.consume(TokenType::TokenLeftParen, "Expect '(' after function name.");
-        if !self.check(TokenType::TokenRightParen) {
+        self.consume(TokenType::LeftParen, "Expect '(' after function name.");
+        if !self.check(TokenType::RightParen) {
             loop {
                 function.arity += 1;
 
@@ -1173,23 +1164,20 @@ impl Parser {
                 let constant = self.parse_variable("Expect parameter name.");
                 self.define_variable(constant);
 
-                if !self.match_(TokenType::TokenComma) {
+                if !self.match_(TokenType::Comma) {
                     break;
                 }
             }
         }
-        self.consume(TokenType::TokenRightParen, "Expect ')' after parameters.");
-        self.consume(
-            TokenType::TokenLeftBrace,
-            "Expect '{' before function body.",
-        );
+        self.consume(TokenType::RightParen, "Expect ')' after parameters.");
+        self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
         self.block();
 
         // The self.scope_end() isn't necessary because all locals will get implicitly
         // popped when the VM pops the CallFrame.
         let function = self.end_compiler();
         let constant = self.make_constant(Value::obj(function as *mut Obj));
-        self.emit_bytes(Opcode::OpClosure, constant);
+        self.emit_bytes(Opcode::Closure, constant);
 
         let function = unsafe { function.as_ref().unwrap() };
         for i in 0..(function.upvalue_count as usize) {
@@ -1217,46 +1205,46 @@ pub(crate) fn make_rules() -> Rules {
     }
 
     {
-        rule!(TokenType::TokenLeftParen,    Some(group),    Some(call),   Precedence::Call      );
-        rule!(TokenType::TokenRightParen,   None,           None,         Precedence::None      );
-        rule!(TokenType::TokenLeftBrace,    None,           None,         Precedence::None      );
-        rule!(TokenType::TokenRightBrace,   None,           None,         Precedence::None      );
-        rule!(TokenType::TokenComma,        None,           None,         Precedence::None      );
-        rule!(TokenType::TokenDot,          None,           Some(dot),    Precedence::Call      );
-        rule!(TokenType::TokenMinus,        Some(unary),    Some(binary), Precedence::Term      );
-        rule!(TokenType::TokenPlus,         None,           Some(binary), Precedence::Term      );
-        rule!(TokenType::TokenSemicolon,    None,           None,         Precedence::None      );
-        rule!(TokenType::TokenSlash,        None,           Some(binary), Precedence::Factor    );
-        rule!(TokenType::TokenStar,         None,           Some(binary), Precedence::Factor    );
-        rule!(TokenType::TokenBang,         Some(unary),    None,         Precedence::None      );
-        rule!(TokenType::TokenBangEqual,    None,           Some(binary), Precedence::Equality  );
-        rule!(TokenType::TokenEqual,        None,           None,         Precedence::None      );
-        rule!(TokenType::TokenEqualEqual,   None,           Some(binary), Precedence::Equality  );
-        rule!(TokenType::TokenGreater,      None,           Some(binary), Precedence::Comparison);
-        rule!(TokenType::TokenGreaterEqual, None,           Some(binary), Precedence::Comparison);
-        rule!(TokenType::TokenLess,         None,           Some(binary), Precedence::Comparison);
-        rule!(TokenType::TokenLessEqual,    None,           Some(binary), Precedence::Comparison);
-        rule!(TokenType::TokenIdentifier,   Some(variable), None,         Precedence::None      );
-        rule!(TokenType::TokenString,       Some(string),   None,         Precedence::None      );
-        rule!(TokenType::TokenNumber,       Some(number),   None,         Precedence::None      );
-        rule!(TokenType::TokenAnd,          None,           Some(and_),   Precedence::And       );
-        rule!(TokenType::TokenClass,        None,           None,         Precedence::None      );
-        rule!(TokenType::TokenElse,         None,           None,         Precedence::None      );
-        rule!(TokenType::TokenFalse,        Some(literal),  None,         Precedence::None      );
-        rule!(TokenType::TokenFor,          None,           None,         Precedence::None      );
-        rule!(TokenType::TokenFun,          None,           None,         Precedence::None      );
-        rule!(TokenType::TokenIf,           None,           None,         Precedence::None      );
-        rule!(TokenType::TokenNil,          Some(literal),  None,         Precedence::None      );
-        rule!(TokenType::TokenOr,           None,           Some(or_),    Precedence::Or        );
-        rule!(TokenType::TokenPrint,        None,           None,         Precedence::None      );
-        rule!(TokenType::TokenReturn,       None,           None,         Precedence::None      );
-        rule!(TokenType::TokenSuper,        Some(super_),   None,         Precedence::None      );
-        rule!(TokenType::TokenThis,         Some(this_),    None,         Precedence::None      );
-        rule!(TokenType::TokenTrue,         Some(literal),  None,         Precedence::None      );
-        rule!(TokenType::TokenVar,          None,           None,         Precedence::None      );
-        rule!(TokenType::TokenWhile,        None,           None,         Precedence::None      );
-        rule!(TokenType::TokenError,        None,           None,         Precedence::None      );
-        rule!(TokenType::TokenEof,          None,           None,         Precedence::None      );
+        rule!(TokenType::LeftParen,    Some(group),    Some(call),   Precedence::Call      );
+        rule!(TokenType::RightParen,   None,           None,         Precedence::None      );
+        rule!(TokenType::LeftBrace,    None,           None,         Precedence::None      );
+        rule!(TokenType::RightBrace,   None,           None,         Precedence::None      );
+        rule!(TokenType::Comma,        None,           None,         Precedence::None      );
+        rule!(TokenType::Dot,          None,           Some(dot),    Precedence::Call      );
+        rule!(TokenType::Minus,        Some(unary),    Some(binary), Precedence::Term      );
+        rule!(TokenType::Plus,         None,           Some(binary), Precedence::Term      );
+        rule!(TokenType::Semicolon,    None,           None,         Precedence::None      );
+        rule!(TokenType::Slash,        None,           Some(binary), Precedence::Factor    );
+        rule!(TokenType::Star,         None,           Some(binary), Precedence::Factor    );
+        rule!(TokenType::Bang,         Some(unary),    None,         Precedence::None      );
+        rule!(TokenType::BangEqual,    None,           Some(binary), Precedence::Equality  );
+        rule!(TokenType::Equal,        None,           None,         Precedence::None      );
+        rule!(TokenType::EqualEqual,   None,           Some(binary), Precedence::Equality  );
+        rule!(TokenType::Greater,      None,           Some(binary), Precedence::Comparison);
+        rule!(TokenType::GreaterEqual, None,           Some(binary), Precedence::Comparison);
+        rule!(TokenType::Less,         None,           Some(binary), Precedence::Comparison);
+        rule!(TokenType::LessEqual,    None,           Some(binary), Precedence::Comparison);
+        rule!(TokenType::Identifier,   Some(variable), None,         Precedence::None      );
+        rule!(TokenType::String,       Some(string),   None,         Precedence::None      );
+        rule!(TokenType::Number,       Some(number),   None,         Precedence::None      );
+        rule!(TokenType::And,          None,           Some(and_),   Precedence::And       );
+        rule!(TokenType::Class,        None,           None,         Precedence::None      );
+        rule!(TokenType::Else,         None,           None,         Precedence::None      );
+        rule!(TokenType::False,        Some(literal),  None,         Precedence::None      );
+        rule!(TokenType::For,          None,           None,         Precedence::None      );
+        rule!(TokenType::Fun,          None,           None,         Precedence::None      );
+        rule!(TokenType::If,           None,           None,         Precedence::None      );
+        rule!(TokenType::Nil,          Some(literal),  None,         Precedence::None      );
+        rule!(TokenType::Or,           None,           Some(or_),    Precedence::Or        );
+        rule!(TokenType::Print,        None,           None,         Precedence::None      );
+        rule!(TokenType::Return,       None,           None,         Precedence::None      );
+        rule!(TokenType::Super,        Some(super_),   None,         Precedence::None      );
+        rule!(TokenType::This,         Some(this_),    None,         Precedence::None      );
+        rule!(TokenType::True,         Some(literal),  None,         Precedence::None      );
+        rule!(TokenType::Var,          None,           None,         Precedence::None      );
+        rule!(TokenType::While,        None,           None,         Precedence::None      );
+        rule!(TokenType::Error,        None,           None,         Precedence::None      );
+        rule!(TokenType::Eof,          None,           None,         Precedence::None      );
     }
 
     Rules(rules)
