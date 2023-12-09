@@ -117,12 +117,7 @@ pub extern "C" fn table_get(table: *const Table, key: *const ObjString, value: *
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
-pub extern "C" fn table_set(
-    gc: Gc,
-    table: *mut Table,
-    key: *const ObjString,
-    value: Value,
-) -> bool {
+pub extern "C" fn table_set(gc: Gc, table: *mut Table, key: *mut ObjString, value: Value) -> bool {
     unsafe { table.as_mut().unwrap() }.set(gc, key, value)
 }
 
@@ -780,7 +775,7 @@ pub extern "C" fn concatenate(
         *chars.add(length) = '\0' as c_char;
     }
 
-    str_take(gc, chars, length)
+    ObjString::from_owned(gc, chars, length)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

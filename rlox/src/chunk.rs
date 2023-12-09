@@ -227,7 +227,8 @@ impl Chunk {
     fn closure_instruction(&self, op: Opcode, mut offset: c_uint) -> c_uint {
         offset += 1;
 
-        let constant = *self.code.get(offset + 1);
+        let constant = *self.code.get(offset);
+        offset += 1;
         print!("{: <16?} {:04} ", op, constant);
 
         let v = self.constants.get(constant.into());

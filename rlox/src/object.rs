@@ -6,11 +6,38 @@ use std::ptr;
 use crate::value::Value;
 use crate::{Chunk, Gc, Table};
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct Obj {
     pub(crate) r#type: ObjType,
     pub(crate) is_marked: bool,
     pub(crate) next: *mut Obj,
+}
+
+impl fmt::Display for Obj {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unsafe {
+            match self.r#type {
+                ObjType::OBoundMethod => {
+                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjBoundMethod>(self))
+                }
+
+                ObjType::OClass => write!(f, "{}", std::mem::transmute::<&Obj, &ObjClass>(self)),
+                ObjType::OClosure => {
+                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjClosure>(self))
+                }
+                ObjType::OFunction => {
+                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjFunction>(self))
+                }
+                ObjType::OInstance => {
+                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjInstance>(self))
+                }
+                ObjType::ONative => write!(f, "<native fn>"),
+                ObjType::OString => write!(f, "{}", std::mem::transmute::<&Obj, &ObjString>(self)),
+                ObjType::OUpvalue => write!(f, "upvalue"),
+            }
+        }
+    }
 }
 
 pub fn print_object(obj: *const Obj) {
@@ -79,7 +106,7 @@ macro_rules! allocate_obj {
         let obj: *mut $T = $gc.reallocate(null, 0, size);
         unsafe {
             (*obj).obj.r#type = $obj_ty;
-            (*obj).obj.r#type = $obj_ty;
+            (*obj).obj.is_marked = false;
         }
 
         unsafe {
@@ -108,6 +135,12 @@ impl ObjBoundMethod {
     }
 }
 
+impl fmt::Display for ObjBoundMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", unsafe { &*(*self.method).function })
+    }
+}
+
 pub fn print_bound_method(bound: *const ObjBoundMethod) {
     print_function(unsafe { bound.as_ref().unwrap().method.as_ref().unwrap() }.function);
 }
@@ -128,6 +161,12 @@ impl ObjClass {
             (*klass).methods.init();
         }
         klass
+    }
+}
+
+impl fmt::Display for ObjClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", unsafe { &*self.name })
     }
 }
 
@@ -168,6 +207,12 @@ impl ObjClosure {
     }
 }
 
+impl fmt::Display for ObjClosure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", unsafe { &*self.function })
+    }
+}
+
 pub fn print_closure(closure: *const ObjClosure) {
     print_function(unsafe { closure.as_ref().unwrap() }.function);
 }
@@ -204,6 +249,16 @@ impl ObjFunction {
     }
 }
 
+impl fmt::Display for ObjFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(name) = unsafe { self.name.as_ref() } {
+            write!(f, "<fn {}>", name)
+        } else {
+            write!(f, "<script>")
+        }
+    }
+}
+
 pub fn print_function(func: *const ObjFunction) {
     let name = unsafe { func.as_ref().unwrap() }.name;
     if name.is_null() {
@@ -228,6 +283,12 @@ impl ObjInstance {
             (*instance).fields.init();
         }
         instance
+    }
+}
+
+impl fmt::Display for ObjInstance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} instance", unsafe { &*(*self.klass).name })
     }
 }
 
@@ -362,6 +423,12 @@ impl ObjUpvalue {
             (*upvalue).next = ptr::null_mut();
         }
         upvalue
+    }
+}
+
+impl fmt::Display for ObjUpvalue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "upvalue")
     }
 }
 

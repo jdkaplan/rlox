@@ -31,8 +31,8 @@ pub struct Parser {
 
 #[repr(C)]
 pub struct Compiler {
-    enclosing: *mut Compiler,
-    function: *mut ObjFunction,
+    pub(crate) enclosing: *mut Compiler,
+    pub(crate) function: *mut ObjFunction,
     mode: FunctionMode,
 
     // TODO: This is a Vec
@@ -165,7 +165,7 @@ impl Parser {
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
         let function = unsafe { compiler.function.as_mut().unwrap() };
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "print_code")]
         if !self.had_error {
             self.current_chunk().disassemble(&function.name());
         }

@@ -10,15 +10,15 @@ const TABLE_MAX_LOAD: f64 = 0.75;
 // TODO: This is a HashMap
 #[repr(C)]
 pub struct Table {
-    size: c_uint,
-    cap: u32,
-    entries: *mut Entry,
+    pub(crate) size: c_uint,
+    pub(crate) cap: u32,
+    pub(crate) entries: *mut Entry,
 }
 
 #[repr(C)]
 pub struct Entry {
-    key: *mut ObjString,
-    value: Value,
+    pub(crate) key: *mut ObjString,
+    pub(crate) value: Value,
 }
 
 fn find_entry(entries: *mut Entry, cap: c_uint, key: *const ObjString) -> *mut Entry {
@@ -106,7 +106,7 @@ impl Table {
         Some(entry.value)
     }
 
-    pub(crate) fn set(&mut self, gc: Gc, key: *const ObjString, value: Value) -> bool {
+    pub(crate) fn set(&mut self, gc: Gc, key: *mut ObjString, value: Value) -> bool {
         if (self.size + 1) as f64 > (self.cap as f64) * TABLE_MAX_LOAD {
             let cap = grow_cap(self.cap);
             self.resize(gc, cap);
@@ -120,7 +120,7 @@ impl Table {
         }
 
         unsafe {
-            (*entry).key = key as *mut ObjString;
+            (*entry).key = key;
             (*entry).value = value;
         }
         is_new

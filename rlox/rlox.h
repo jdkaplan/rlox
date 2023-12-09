@@ -232,6 +232,12 @@ typedef struct Table {
   struct Entry *entries;
 } Table;
 
+typedef struct Vec_____Obj {
+  unsigned int len;
+  unsigned int cap;
+  struct Obj **items;
+} Vec_____Obj;
+
 typedef struct Vm {
   struct CallFrame frames[FRAMES_MAX];
   unsigned int frame_count;
@@ -242,9 +248,7 @@ typedef struct Vm {
   struct ObjString *init_string;
   struct ObjUpvalue *open_upvalues;
   struct Obj *objects;
-  uintptr_t gc_pending_len;
-  uintptr_t gc_pending_cap;
-  struct Obj **gc_pending_stack;
+  struct Vec_____Obj gc_pending;
   uintptr_t bytes_allocated;
   uintptr_t next_gc;
 } Vm;
@@ -342,7 +346,7 @@ void table_free(struct Gc gc, struct Table *table);
 
 bool table_get(const struct Table *table, const struct ObjString *key, struct Value *value);
 
-bool table_set(struct Gc gc, struct Table *table, const struct ObjString *key, struct Value value);
+bool table_set(struct Gc gc, struct Table *table, struct ObjString *key, struct Value value);
 
 bool table_delete(struct Table *table, const struct ObjString *key);
 

@@ -52,6 +52,10 @@ impl Value {
         self.r#type == ValueType::TNumber
     }
 
+    pub(crate) fn is_obj(&self) -> bool {
+        self.r#type == ValueType::TObj
+    }
+
     pub(crate) fn is_falsey(&self) -> bool {
         self.is_nil() || (self.is_bool() && unsafe { !self.as_bool() })
     }
@@ -79,7 +83,7 @@ impl fmt::Display for Value {
             }
             ValueType::TNil => write!(f, "nil"),
             ValueType::TNumber => write!(f, "{}", unsafe { self.r#as.number }),
-            ValueType::TObj => write!(f, "<object Object>"), // TODO
+            ValueType::TObj => write!(f, "{}", unsafe { self.r#as.obj.as_ref().unwrap() }),
         }
     }
 }

@@ -1,8 +1,11 @@
 use std::alloc::{dealloc, realloc, Layout};
 use std::mem;
 use std::ptr;
+use std::sync::{Mutex, OnceLock};
 
-use crate::{Compiler, Obj, Vm};
+use crate::{Compiler, Obj, ObjType, Table, Value, Vm, *};
+
+const GC_GROWTH_FACTOR: usize = 2;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -15,26 +18,17 @@ impl Gc {
     pub(crate) fn new(compiler: *mut Compiler, vm: *mut Vm) -> Self {
         Self { compiler, vm }
     }
+}
 
-    pub fn collect_garbage(&mut self) {
-        debugln!("-- gc start");
-        let before = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
+macro_rules! debug_log_gc {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "log_gc")]
+        println!($($arg)*);
+    }};
+}
 
-        // TODO: self.mark_roots();
-        // TODO: self.trace_references();
-        // TODO: unsafe { *self.vm }.strings.remove_unreachable();
-        // TODO: self.sweep();
-
-        let after = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
-        debugln!(
-            "   gc collected {} bytes ({} => {}) next at {}",
-            before - after,
-            before,
-            after,
-            unsafe { self.vm.as_ref().unwrap() }.next_gc
-        );
-    }
-
+// TODO: This part feels more like an Alloc
+impl Gc {
     pub fn reallocate<T>(&mut self, ptr: *mut T, old: usize, new: usize) -> *mut T {
         if self.vm.is_null() {
             return _reallocate(ptr, new);
@@ -49,12 +43,12 @@ impl Gc {
 
         #[cfg(feature = "stress_gc")]
         if new > old {
-            debugln!("-- gc stress");
+            debug_log_gc!("-- gc stress");
             self.collect_garbage();
         }
 
         if unsafe { (*self.vm).bytes_allocated > (*self.vm).next_gc } {
-            debugln!(
+            debug_log_gc!(
                 "-- gc now: {} > {}",
                 unsafe { (*self.vm).bytes_allocated },
                 unsafe { (*self.vm).next_gc }
@@ -63,7 +57,16 @@ impl Gc {
             self.collect_garbage();
         }
 
-        _reallocate(ptr, new)
+        let new_ptr = _reallocate(ptr, new);
+        debug_log_gc!(
+            "reallocated: {:?} {} => {:?} {} as {:?}",
+            ptr,
+            old,
+            new_ptr,
+            new,
+            std::any::type_name::<T>()
+        );
+        new_ptr
     }
 
     pub fn resize_array<T>(&mut self, ptr: *mut T, old_cap: usize, new_cap: usize) -> *mut T {
@@ -85,6 +88,230 @@ impl Gc {
     }
 }
 
+fn counter() -> &'static Mutex<u8> {
+    static COUNT: OnceLock<Mutex<u8>> = OnceLock::new();
+    COUNT.get_or_init(|| Mutex::new(0))
+}
+
+impl Gc {
+    pub fn collect_garbage(&mut self) {
+        let mut count = counter().lock().unwrap();
+        assert_eq!(*count, 0);
+        *count += 1;
+
+        let mut obj = unsafe { &*self.vm }.objects;
+        while let Some(r) = unsafe { obj.as_mut() } {
+            assert!(!r.is_marked);
+            obj = r.next;
+        }
+
+        assert_eq!(unsafe { &*self.vm }.gc_pending.len(), 0);
+
+        debug_log_gc!("-- gc start");
+        let before = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
+
+        self.mark_roots();
+        self.trace_references();
+        unsafe { self.vm.as_mut().unwrap() }
+            .strings
+            .remove_unreachable();
+        self.sweep();
+
+        unsafe { self.vm.as_mut().unwrap() }.next_gc =
+            unsafe { self.vm.as_mut().unwrap() }.bytes_allocated * GC_GROWTH_FACTOR;
+
+        let after = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
+        debug_log_gc!(
+            "   gc collected {} bytes ({} => {}) next at {}",
+            before - after,
+            before,
+            after,
+            unsafe { self.vm.as_ref().unwrap() }.next_gc
+        );
+
+        *count -= 1;
+        assert_eq!(*count, 0);
+    }
+}
+
+// Mark
+impl Gc {
+    fn mark_roots(&mut self) {
+        let vm = unsafe { self.vm.as_mut().unwrap() };
+
+        debug_log_gc!("---- mark slots");
+        let mut slot = ptr::addr_of_mut!(vm.stack[0]);
+        while slot < vm.stack_top {
+            self.mark_value(unsafe { *slot });
+            slot = unsafe { slot.add(1) };
+        }
+
+        debug_log_gc!("---- mark frames");
+        for i in 0..(vm.frame_count as usize) {
+            let obj = vm.frames.get_mut(i).unwrap().closure as *mut Obj;
+            self.mark_obj(obj);
+        }
+
+        debug_log_gc!("---- mark upvalues");
+        let mut upvalue = vm.open_upvalues;
+        while !upvalue.is_null() {
+            self.mark_obj(upvalue as *mut Obj);
+            upvalue = unsafe { &*upvalue }.next;
+        }
+
+        debug_log_gc!("---- mark globals");
+        self.mark_table(&mut vm.globals);
+
+        debug_log_gc!("---- mark init string");
+        self.mark_obj(vm.init_string as *mut Obj);
+
+        debug_log_gc!("---- mark compilers");
+        let mut compiler = self.compiler;
+        while !compiler.is_null() {
+            self.mark_obj(unsafe { compiler.as_mut().unwrap() }.function as *mut Obj);
+            compiler = unsafe { &*compiler }.enclosing;
+        }
+    }
+
+    fn mark_value(&mut self, value: Value) {
+        if value.is_obj() {
+            self.mark_obj(unsafe { value.as_obj::<Obj>() });
+        }
+    }
+
+    fn mark_obj(&mut self, obj: *mut Obj) {
+        debug_log_gc!("mark_obj: {:?}", obj);
+
+        let Some(obj) = (unsafe { obj.as_mut() }) else {
+            return;
+        };
+
+        if obj.is_marked {
+            return;
+        }
+        obj.is_marked = true;
+
+        let vm = unsafe { self.vm.as_mut().unwrap() };
+
+        // Don't use `reallocate` or any of its wrappers to avoid triggering recursive
+        // garbage collection.
+        //
+        // TODO: Don't use the global allocator either because it's untracked.
+        vm.gc_pending.push(obj);
+    }
+
+    fn mark_table(&mut self, table: &mut Table) {
+        for i in 0..(table.cap as usize) {
+            let entry = unsafe { table.entries.add(i).as_mut().unwrap() };
+            self.mark_obj(entry.key as *mut Obj);
+            self.mark_value(entry.value);
+        }
+    }
+}
+
+// Trace
+impl Gc {
+    fn trace_references(&mut self) {
+        debug_log_gc!("---- trace references");
+        let vm = unsafe { self.vm.as_mut().unwrap() };
+        while let Some(obj) = vm.gc_pending.pop() {
+            self.expand_obj(obj);
+        }
+    }
+
+    fn expand_obj(&mut self, obj: *mut Obj) {
+        debug_log_gc!("expand obj: {:?}", obj);
+        match unsafe { obj.as_ref().unwrap().r#type } {
+            ObjType::OBoundMethod => {
+                let bound = unsafe { (obj as *mut ObjBoundMethod).as_mut().unwrap() };
+                debug_log_gc!("expand as: {}", bound);
+
+                self.mark_value(bound.receiver);
+                self.mark_obj(bound.method as *mut Obj);
+            }
+            ObjType::OClass => {
+                let klass = unsafe { (obj as *mut ObjClass).as_mut().unwrap() };
+                debug_log_gc!("expand as: {}", klass);
+
+                self.mark_obj(klass.name as *mut Obj);
+                self.mark_table(&mut klass.methods);
+            }
+            ObjType::OClosure => {
+                let closure = unsafe { (obj as *mut ObjClosure).as_mut().unwrap() };
+                debug_log_gc!("expand as: {}", closure);
+
+                self.mark_obj(closure.function as *mut Obj);
+                for i in 0..(closure.upvalue_count as usize) {
+                    self.mark_obj(unsafe { closure.upvalues.add(i) as *mut Obj });
+                }
+            }
+            ObjType::OFunction => {
+                let function = unsafe { (obj as *mut ObjFunction).as_mut().unwrap() };
+                debug_log_gc!("expand as: {}", function);
+
+                self.mark_obj(function.name as *mut Obj);
+                for i in 0..function.chunk.constants.len() {
+                    self.mark_value(*function.chunk.constants.get(i));
+                }
+            }
+            ObjType::OInstance => {
+                let instance = unsafe { (obj as *mut ObjInstance).as_mut().unwrap() };
+                debug_log_gc!("expand as: {}", instance);
+
+                self.mark_obj(instance.klass as *mut Obj);
+                self.mark_table(&mut instance.fields);
+            }
+            ObjType::OUpvalue => {
+                let upvalue = unsafe { (obj as *mut ObjUpvalue).as_mut().unwrap() };
+                debug_log_gc!("expand as: {}", upvalue);
+
+                self.mark_value(upvalue.closed);
+            }
+
+            // No further references
+            ObjType::ONative | ObjType::OString => {}
+        }
+    }
+}
+
+// Sweep
+impl Gc {
+    fn sweep(&mut self) {
+        debug_log_gc!("---- sweep");
+        let vm = unsafe { self.vm.as_mut().unwrap() };
+
+        let mut prev = ptr::null_mut();
+        let mut obj = vm.objects;
+
+        while let Some(obj_ref) = unsafe { obj.as_mut() } {
+            // Reachable => reset and continue
+            if obj_ref.is_marked {
+                obj_ref.is_marked = false;
+                debug_log_gc!("reachable: {:?}", obj);
+
+                prev = obj;
+                obj = obj_ref.next;
+                continue;
+            }
+
+            // Pop the unreachable object from the list...
+            let unreachable = obj;
+            debug_log_gc!("unreachable: {:?}", obj);
+            obj = obj_ref.next;
+            if !prev.is_null() {
+                unsafe { (*prev).next = obj };
+            } else {
+                // The first object was the unreachable one, so start the VM's object list
+                // at the next one.
+                vm.objects = obj;
+            }
+
+            // ... and free it.
+            self.free(unreachable);
+        }
+    }
+}
+
 pub fn _reallocate<T>(ptr: *mut T, new: usize) -> *mut T {
     let layout = Layout::new::<T>();
     if new == 0 {
@@ -97,4 +324,12 @@ pub fn _reallocate<T>(ptr: *mut T, new: usize) -> *mut T {
         panic!("could not allocate memory");
     }
     ptr
+}
+
+fn grow_cap(cap: usize) -> usize {
+    if cap < 8 {
+        8
+    } else {
+        2 * cap
+    }
 }

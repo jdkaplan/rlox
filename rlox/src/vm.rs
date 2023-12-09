@@ -1,4 +1,3 @@
-use std::alloc::{dealloc, Layout};
 use std::ffi::{c_uint, CStr, CString};
 use std::ptr;
 
@@ -15,7 +14,7 @@ pub struct RuntimeError;
 
 #[repr(C)]
 pub struct CallFrame {
-    closure: *mut ObjClosure,
+    pub(crate) closure: *mut ObjClosure,
     ip: *mut u8,
     slots: *mut Value,
 }
@@ -39,10 +38,7 @@ pub struct Vm {
 
     pub(crate) objects: *mut Obj,
 
-    // TODO: This is a Vec
-    pub(crate) gc_pending_len: usize,
-    pub(crate) gc_pending_cap: usize,
-    pub(crate) gc_pending_stack: *mut *mut Obj,
+    pub(crate) gc_pending: Vec<*mut Obj>,
 
     pub(crate) bytes_allocated: usize,
     pub(crate) next_gc: usize,
@@ -57,9 +53,7 @@ impl Vm {
         self.next_gc = 0;
 
         // TODO: This is a Vec
-        self.gc_pending_len = 0;
-        self.gc_pending_cap = 0;
-        self.gc_pending_stack = ptr::null_mut();
+        self.gc_pending = Vec::new();
 
         self.globals.init();
         self.strings.init();
@@ -108,7 +102,7 @@ impl Vm {
         // null VM to avoid segfaulting when that happens.
         gc.vm = ptr::null_mut();
         gc.free_objects(self.objects);
-        unsafe { dealloc(self.gc_pending_stack as *mut u8, Layout::new::<*mut Obj>()) };
+        std::mem::take(&mut self.gc_pending);
     }
 }
 
@@ -309,6 +303,8 @@ impl Vm {
             return false;
         };
 
+        assert!(method.is_obj_type(ObjType::OClosure));
+
         let bound = ObjBoundMethod::new(gc, self.peek(0), unsafe { method.as_obj::<ObjClosure>() });
         self.pop(); // method
         self.push(Value::obj(bound as *mut Obj));
@@ -422,7 +418,8 @@ impl Vm {
         macro_rules! read_constant {
             () => {{
                 let idx = read_byte!();
-                let constants = &unsafe { &*(&*(*frame).closure).function }.chunk.constants;
+                let constants: &crate::chunk::Values =
+                    &unsafe { &*(&*(*frame).closure).function }.chunk.constants;
                 unsafe { *constants.base_ptr().offset(idx as isize) }
             }};
         }
@@ -467,13 +464,33 @@ impl Vm {
         }
 
         loop {
-            // TODO: debug stack
-            // TODO: debug current instruction
+            #[cfg(feature = "trace_execution")]
+            {
+                let mut slot = ptr::addr_of_mut!(self.stack[0]);
+                while slot < self.stack_top {
+                    print!("[ {} ]", unsafe { *slot });
+                    slot = unsafe { slot.add(1) };
+                }
+                println!();
+            }
 
             let opcode: Opcode = match read_byte!().try_into() {
                 Ok(opcode) => opcode,
                 Err(err) => panic!("unknown opcode: {}", err.opcode),
             };
+
+            #[cfg(feature = "trace_execution")]
+            unsafe {
+                let frame = unsafe { frame.as_ref().unwrap() };
+                let closure = unsafe { frame.closure.as_ref().unwrap() };
+                let func = unsafe { closure.function.as_ref().unwrap() };
+
+                // The ip has already moved past the instruction that failed, so subtract
+                // one extra.
+                let base = func.chunk.code.base_ptr();
+                let instruction = unsafe { frame.ip.offset_from(base) - 1 } as c_uint;
+                func.chunk.disassemble_instruction(instruction);
+            }
 
             match opcode {
                 Opcode::OpConstant => {
@@ -656,9 +673,7 @@ impl Vm {
 
                 Opcode::OpPrint => {
                     let v = self.pop();
-                    // TODO: println!("{}", v);
-                    v.print();
-                    println!();
+                    println!("{}", v);
                 }
 
                 Opcode::OpJump => {
