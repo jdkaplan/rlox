@@ -15,20 +15,34 @@ CDEBUG =
 else
 PROFILE = debug
 RUSTFLAGS =
-CDEBUG = -g3 \
-		 -DDEBUG_TRACE_EXECUTION \
-		 -DDEBUG_PRINT_CODE \
-		 -DDEBUG_LOG_GC
+CDEBUG = -g3
 endif
 
 ifeq ($(DEBUG_STRESS),)
 CDEBUG_STRESS =
+RLOX_STRESS =
 else
 CDEBUG_STRESS = -DDEBUG_STRESS_GC
+RLOX_STRESS = stress_gc
+endif
+
+ifeq ($(DEBUG_TRACE),)
+CDEBUG_TRACE =
+RLOX_TRACE =
+else
+CDEBUG_TRACE = -DDEBUG_TRACE_EXECUTION \
+			   -DDEBUG_PRINT_CODE \
+			   -DDEBUG_LOG_GC
+RLOX_TRACE = trace_execution \
+			 print_code \
+			 log_gc
 endif
 
 CC     = gcc
-CFLAGS = $(CDEBUG) $(CDEBUG_STRESS) \
+CFLAGS = $(CDEBUG) \
+		 $(CDEBUG_STRESS) \
+		 $(CDEBUG_TRACE) \
+		 \
 		 -I./rlox \
 		 -Wall \
 		 -Wextra \
@@ -73,7 +87,7 @@ RLOX_FILES = rlox/Cargo.toml rlox/Cargo.lock $(wildcard rlox/src/*.rs)
 
 .PHONY: rlox
 rlox: $(RLOX_FILES)
-	cd rlox && cargo build $(RUSTFLAGS)
+	cd rlox && cargo build $(RUSTFLAGS) --features '$(RLOX_STRESS) $(RLOX_TRACE)'
 
 rlox/target/$(PROFILE)/librlox.a: rlox
 
