@@ -94,6 +94,8 @@ impl Chunk {
 }
 
 impl Chunk {
+    // This is only used for certain debug features. Prevent it from being considered dead code.
+    #[allow(dead_code)]
     pub(crate) fn disassemble(&self, name: &str) {
         println!("== {} ==", name);
 

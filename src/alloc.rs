@@ -114,6 +114,7 @@ impl Gc {
         assert_eq!(unsafe { &*self.vm }.gc_pending.len(), 0);
 
         debug_log_gc!("-- gc start");
+        #[cfg(feature = "log_gc")]
         let before = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
 
         self.mark_roots();
@@ -126,6 +127,7 @@ impl Gc {
         unsafe { self.vm.as_mut().unwrap() }.next_gc =
             unsafe { self.vm.as_mut().unwrap() }.bytes_allocated * GC_GROWTH_FACTOR;
 
+        #[cfg(feature = "log_gc")]
         let after = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
         debug_log_gc!(
             "   gc collected {} bytes ({} => {}) next at {}",
