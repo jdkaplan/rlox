@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_uint};
+use std::ffi::c_char;
 use std::ptr;
 
 use crate::alloc::Gc;
@@ -10,7 +10,7 @@ const TABLE_MAX_LOAD: f64 = 0.75;
 // TODO: This is a HashMap
 #[repr(C)]
 pub struct Table {
-    pub(crate) size: c_uint,
+    pub(crate) size: u32,
     pub(crate) cap: u32,
     pub(crate) entries: *mut Entry,
 }
@@ -21,7 +21,7 @@ pub struct Entry {
     pub(crate) value: Value,
 }
 
-fn find_entry(entries: *mut Entry, cap: c_uint, key: *const ObjString) -> *mut Entry {
+fn find_entry(entries: *mut Entry, cap: u32, key: *const ObjString) -> *mut Entry {
     let mut idx = unsafe { key.as_ref().unwrap() }.hash % cap;
     let mut tombstone = ptr::null_mut::<Entry>();
 

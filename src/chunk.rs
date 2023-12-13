@@ -1,4 +1,3 @@
-use std::ffi::{c_int, c_uint};
 use std::fmt;
 
 use crate::alloc::Gc;
@@ -31,9 +30,9 @@ delegate!(Bytecode, Vec<u8>);
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct Lines(Vec<c_int>);
+pub struct Lines(Vec<usize>);
 
-delegate!(Lines, Vec<c_int>);
+delegate!(Lines, Vec<usize>);
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -73,7 +72,7 @@ impl Chunk {
         self.lines.free(gc);
     }
 
-    pub fn write_byte(&mut self, gc: Gc, byte: u8, line: c_int) {
+    pub fn write_byte(&mut self, gc: Gc, byte: u8, line: usize) {
         self.code.push(gc, byte);
         self.lines.push(gc, line);
     }
@@ -112,7 +111,7 @@ impl Chunk {
         }
     }
 
-    pub(crate) fn disassemble_instruction(&self, offset: c_uint) -> c_uint {
+    pub(crate) fn disassemble_instruction(&self, offset: usize) -> usize {
         print!("{:04} ", offset);
 
         if offset > 0 && self.lines.get(offset) == self.lines.get(offset - 1) {
@@ -171,43 +170,43 @@ impl Chunk {
         }
     }
 
-    fn simple_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
+    fn simple_instruction(&self, op: Opcode, offset: usize) -> usize {
         println!("{: <16?}", op);
         offset + 1
     }
 
-    fn byte_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
+    fn byte_instruction(&self, op: Opcode, offset: usize) -> usize {
         let slot = self.code.get(offset + 1);
         println!("{: <16?} {:04}", op, slot);
         offset + 2
     }
 
-    fn constant_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
+    fn constant_instruction(&self, op: Opcode, offset: usize) -> usize {
         let constant = *self.code.get(offset + 1);
         let val = self.constants.get(constant.into());
         print!("{: <16?} {:04} '{}'", op, constant, val);
         offset + 2
     }
 
-    fn jump_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
+    fn jump_instruction(&self, op: Opcode, offset: usize) -> usize {
         let hi: u16 = (*self.code.get(offset + 1)).into();
         let lo: u16 = (*self.code.get(offset + 2)).into();
-        let target = offset + 3 + ((hi << 8 | lo) as c_uint);
+        let target = offset + 3 + ((hi << 8 | lo) as usize);
 
         println!("{: <16?} {:04} -> {}", op, offset, target);
         offset + 3
     }
 
-    fn loop_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
+    fn loop_instruction(&self, op: Opcode, offset: usize) -> usize {
         let hi: u16 = (*self.code.get(offset + 1)).into();
         let lo: u16 = (*self.code.get(offset + 2)).into();
-        let target = offset + 3 - ((hi << 8 | lo) as c_uint);
+        let target = offset + 3 - ((hi << 8 | lo) as usize);
 
         println!("{: <16?} {:04} -> {}", op, offset, target);
         offset + 3
     }
 
-    fn invoke_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
+    fn invoke_instruction(&self, op: Opcode, offset: usize) -> usize {
         let constant = *self.code.get(offset + 1);
         let argc = *self.code.get(offset + 2);
         let val = self.constants.get(constant.into());
@@ -216,7 +215,7 @@ impl Chunk {
         offset + 3
     }
 
-    fn closure_instruction(&self, op: Opcode, mut offset: c_uint) -> c_uint {
+    fn closure_instruction(&self, op: Opcode, mut offset: usize) -> usize {
         offset += 1;
 
         let constant = *self.code.get(offset);

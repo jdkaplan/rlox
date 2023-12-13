@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, c_uint, CStr};
+use std::ffi::{c_char, CStr};
 use std::fmt;
 use std::num::Wrapping;
 use std::ptr;
@@ -162,7 +162,7 @@ pub struct ObjClosure {
 
     // TODO: This is a Vec
     pub(crate) upvalues: *mut *mut ObjUpvalue,
-    pub(crate) upvalue_count: c_int,
+    pub(crate) upvalue_count: usize,
 }
 
 impl ObjClosure {
@@ -170,8 +170,8 @@ impl ObjClosure {
         // TODO: This is a Vec
         let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
         let upvalues: *mut *mut ObjUpvalue =
-            gc.resize_array(ptr::null_mut(), 0, upvalue_count as usize);
-        for i in 0..(upvalue_count as usize) {
+            gc.resize_array(ptr::null_mut(), 0, upvalue_count);
+        for i in 0..upvalue_count {
             unsafe { (*upvalues.add(i)) = ptr::null_mut() };
         }
 
@@ -195,8 +195,8 @@ impl fmt::Display for ObjClosure {
 pub struct ObjFunction {
     pub(crate) obj: Obj,
 
-    pub(crate) arity: c_uint,
-    pub(crate) upvalue_count: c_int,
+    pub(crate) arity: usize,
+    pub(crate) upvalue_count: usize,
     pub(crate) chunk: Chunk,
     pub(crate) name: *mut ObjString,
 }
@@ -257,7 +257,7 @@ impl fmt::Display for ObjInstance {
     }
 }
 
-pub type NativeFn = fn(argc: c_uint, argv: *const Value) -> Value;
+pub type NativeFn = fn(argc: usize, argv: *const Value) -> Value;
 
 #[repr(C)]
 pub struct ObjNative {

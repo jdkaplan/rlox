@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ffi::{c_char, c_int, c_uint, CString};
+use std::ffi::{c_char, CString};
 use std::mem::MaybeUninit;
 use std::ptr;
 
@@ -39,9 +39,9 @@ pub struct Compiler {
 
     // TODO: This is a Vec
     locals: [Local; U8_COUNT],
-    local_count: c_int,
+    local_count: usize,
 
-    scope_depth: c_int,
+    scope_depth: usize,
 
     upvalues: [Upvalue; U8_COUNT],
 }
@@ -65,7 +65,7 @@ pub struct ClassCompiler {
 #[repr(C)]
 pub struct Local {
     name: Token,
-    depth: c_int,
+    depth: Option<usize>,
     is_captured: bool,
 }
 
@@ -112,13 +112,10 @@ impl Parser {
 
         // Reserve stack slot zero for the currently executing function.
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
-        let local = compiler
-            .locals
-            .get_mut(compiler.local_count as usize)
-            .unwrap();
+        let local = compiler.locals.get_mut(compiler.local_count).unwrap();
         compiler.local_count += 1;
 
-        local.depth = 0;
+        local.depth = Some(0);
         local.is_captured = false;
         if mode != FunctionMode::Function {
             // local.name = Token::synthetic(&THIS_STR);
@@ -283,7 +280,7 @@ impl Parser {
         chunk.write_byte(gc, b2.into(), line);
     }
 
-    pub(crate) fn emit_loop(&mut self, start: c_uint) {
+    pub(crate) fn emit_loop(&mut self, start: usize) {
         self.emit_byte(Opcode::Loop);
 
         let offset = self.current_chunk().code.len() - start + 2;
@@ -295,13 +292,13 @@ impl Parser {
         self.emit_byte((offset & 0xff) as u8);
     }
 
-    pub(crate) fn emit_jump(&mut self, op: Opcode) -> c_uint {
+    pub(crate) fn emit_jump(&mut self, op: Opcode) -> usize {
         self.emit_byte(op);
         self.emit_bytes(0xff, 0xff);
         self.current_chunk().code.len() - 2
     }
 
-    pub(crate) fn patch_jump(&mut self, offset: c_uint) {
+    pub(crate) fn patch_jump(&mut self, offset: usize) {
         // Walk two extra bytes past the offset itself.
         let chunk = self.current_chunk();
         let jump = chunk.code.len() - offset - 2;
@@ -353,9 +350,9 @@ impl Parser {
 
         // TODO: OP_POP_N/OP_CLOSE_UPVALUE_N is a good optimization here.
         while compiler.local_count > 0
-            && compiler.locals[compiler.local_count as usize - 1].depth > compiler.scope_depth
+            && compiler.locals[compiler.local_count - 1].depth.unwrap_or(0) > compiler.scope_depth
         {
-            if compiler.locals[compiler.local_count as usize - 1].is_captured {
+            if compiler.locals[compiler.local_count - 1].is_captured {
                 self.emit_byte(Opcode::CloseUpvalue);
             } else {
                 self.emit_byte(Opcode::Pop);
@@ -365,20 +362,17 @@ impl Parser {
     }
 
     pub(crate) fn add_local(&mut self, name: Token) {
-        if unsafe { self.compiler.as_mut().unwrap() }.local_count as usize == U8_COUNT {
+        if unsafe { self.compiler.as_mut().unwrap() }.local_count == U8_COUNT {
             self.error("Too many local variables in function.");
             return;
         }
 
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
-        let local = compiler
-            .locals
-            .get_mut(compiler.local_count as usize)
-            .unwrap();
+        let local = compiler.locals.get_mut(compiler.local_count).unwrap();
         compiler.local_count += 1;
 
         local.name = name;
-        local.depth = -1; // declared: reserved without value
+        local.depth = None; // declared: reserved without value
         local.is_captured = false;
     }
 }
@@ -391,8 +385,8 @@ impl Compiler {
         }
 
         // TODO: This is a Vec
-        let local_count = (self.local_count - 1) as usize;
-        self.locals.get_mut(local_count).unwrap().depth = self.scope_depth;
+        let local_count = self.local_count - 1;
+        self.locals.get_mut(local_count).unwrap().depth = Some(self.scope_depth);
         // defined: value available at a certain depth
     }
 }
@@ -403,18 +397,18 @@ impl Parser {
 
         let name = unsafe { name.as_ref().unwrap() };
 
-        let s = ObjString::from_borrowed(gc, name.start, name.length as usize);
+        let s = ObjString::from_borrowed(gc, name.start, name.length);
         self.make_constant(Value::obj(s as *mut Obj))
     }
 
-    pub(crate) fn resolve_local(&mut self, compiler: &Compiler, name: &Token) -> Option<c_int> {
+    pub(crate) fn resolve_local(&mut self, compiler: &Compiler, name: &Token) -> Option<usize> {
         // Parser is only used to report errors.
         // Compiler is used to resolve locals.
 
         for i in (0..compiler.local_count).rev() {
-            let local = compiler.locals.get(i as usize).unwrap();
+            let local = compiler.locals.get(i).unwrap();
             if identifiers_equal(name, &local.name) {
-                if local.depth == -1 {
+                if local.depth.is_none() {
                     self.error("Can't read local variable in its own initializer.");
                 }
                 return Some(i);
@@ -429,26 +423,26 @@ impl Parser {
         compiler: &mut Compiler,
         index: u8,
         is_local: bool,
-    ) -> Option<c_int> {
+    ) -> Option<usize> {
         // Parser is only used to report errors.
         // Compiler is used to resolve locals.
         let function = unsafe { compiler.function.as_mut().unwrap() };
         let upvalue_count = function.upvalue_count;
 
         for i in 0..upvalue_count {
-            let upvalue = compiler.upvalues.get(i as usize).unwrap();
+            let upvalue = compiler.upvalues.get(i).unwrap();
             if upvalue.index == index && upvalue.is_local == is_local {
                 return Some(i);
             }
         }
 
-        if function.upvalue_count as usize == U8_COUNT {
+        if function.upvalue_count == U8_COUNT {
             self.error("Too many closure variables in function.");
             return None;
         }
 
         // TODO: This is a Vec
-        let upvalue = compiler.upvalues.get_mut(upvalue_count as usize).unwrap();
+        let upvalue = compiler.upvalues.get_mut(upvalue_count).unwrap();
         upvalue.is_local = is_local;
         upvalue.index = index;
 
@@ -460,7 +454,7 @@ impl Parser {
         &mut self,
         compiler: &mut Compiler,
         name: &Token,
-    ) -> Option<c_int> {
+    ) -> Option<usize> {
         // Parser is only used to report errors.
         // Compiler is used to resolve locals.
 
@@ -469,11 +463,7 @@ impl Parser {
         };
 
         if let Some(local) = self.resolve_local(enclosing, name) {
-            enclosing
-                .locals
-                .get_mut(local as usize)
-                .unwrap()
-                .is_captured = true;
+            enclosing.locals.get_mut(local).unwrap().is_captured = true;
             return self.add_upvalue(compiler, local as u8, true);
         }
 
@@ -494,8 +484,8 @@ impl Parser {
         let name = self.previous;
         let local_count = compiler.local_count;
         for i in (0..local_count).rev() {
-            let local = compiler.locals[i as usize];
-            if local.depth != -1 && local.depth < compiler.scope_depth {
+            let local = compiler.locals[i];
+            if local.depth < Some(compiler.scope_depth) {
                 break;
             }
 
@@ -753,7 +743,7 @@ pub(crate) fn string(parser: &mut Parser, _can_assign: bool) {
     // Drop the trailing quote '"' and one more because pointer math.
     let length = parser.previous.length - 2;
 
-    let s = ObjString::from_borrowed(gc, start, length as usize);
+    let s = ObjString::from_borrowed(gc, start, length);
     // TODO: This is where handling escape sequence would go.
     parser.emit_constant(Value::obj(s as *mut Obj));
 }
@@ -1136,8 +1126,7 @@ impl Parser {
 
         let function = unsafe { compiler.function.as_mut().unwrap() };
         if mode != FunctionMode::Script {
-            function.name =
-                ObjString::from_borrowed(gc, self.previous.start, self.previous.length as usize);
+            function.name = ObjString::from_borrowed(gc, self.previous.start, self.previous.length);
         }
 
         self.scope_begin();
@@ -1170,7 +1159,7 @@ impl Parser {
         self.emit_bytes(Opcode::Closure, constant);
 
         let function = unsafe { function.as_ref().unwrap() };
-        for i in 0..(function.upvalue_count as usize) {
+        for i in 0..function.upvalue_count {
             let upvalue = compiler.upvalues.get(i).unwrap();
             self.emit_byte(if upvalue.is_local { 1 } else { 0 });
             self.emit_byte(upvalue.index);

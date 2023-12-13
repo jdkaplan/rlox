@@ -1,4 +1,3 @@
-use std::ffi::c_uint;
 use std::ptr;
 
 use crate::alloc::Gc;
@@ -6,8 +5,8 @@ use crate::alloc::Gc;
 #[derive(Debug)]
 #[repr(C)]
 pub struct Vec<T> {
-    len: c_uint,
-    cap: c_uint,
+    len: usize,
+    cap: usize,
     items: *mut T,
 }
 
@@ -19,20 +18,20 @@ impl<T> Vec<T> {
     }
 
     pub(crate) fn free(&mut self, gc: &mut Gc) {
-        gc.resize_array(self.items, self.cap as usize, 0);
+        gc.resize_array(self.items, self.cap, 0);
         self.init();
     }
 
-    pub(crate) fn len(&self) -> c_uint {
+    pub(crate) fn len(&self) -> usize {
         self.len
     }
 
-    pub(crate) fn get(&self, idx: c_uint) -> &T {
-        unsafe { self.items.add(idx as usize).as_ref().unwrap() }
+    pub(crate) fn get(&self, idx: usize) -> &T {
+        unsafe { self.items.add(idx).as_ref().unwrap() }
     }
 
-    pub(crate) fn set(&self, idx: c_uint, val: T) {
-        unsafe { *self.items.add(idx as usize) = val };
+    pub(crate) fn set(&self, idx: usize, val: T) {
+        unsafe { *self.items.add(idx) = val };
     }
 
     pub(crate) fn base_ptr(&self) -> *mut T {
@@ -43,18 +42,18 @@ impl<T> Vec<T> {
         if self.len + 1 > self.cap {
             let old_cap = self.cap;
             self.cap = grow_cap(old_cap);
-            self.items = gc.resize_array(self.items, old_cap as usize, self.cap as usize);
+            self.items = gc.resize_array(self.items, old_cap, self.cap);
         }
 
         unsafe {
-            *self.items.add(self.len as usize) = val;
+            *self.items.add(self.len) = val;
         }
 
         self.len += 1;
     }
 }
 
-fn grow_cap(cap: u32) -> u32 {
+fn grow_cap(cap: usize) -> usize {
     if cap < 8 {
         8
     } else {

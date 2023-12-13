@@ -155,7 +155,7 @@ impl Gc {
         }
 
         debug_log_gc!("---- mark frames");
-        for i in 0..(vm.frame_count as usize) {
+        for i in 0..vm.frame_count {
             let obj = vm.frames.get_mut(i).unwrap().closure as *mut Obj;
             self.mark_obj(obj);
         }
@@ -249,7 +249,7 @@ impl Gc {
                 debug_log_gc!("expand as: {}", closure);
 
                 self.mark_obj(closure.function as *mut Obj);
-                for i in 0..(closure.upvalue_count as usize) {
+                for i in 0..closure.upvalue_count {
                     self.mark_obj(unsafe { closure.upvalues.add(i) as *mut Obj });
                 }
             }

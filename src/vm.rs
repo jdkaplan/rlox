@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_uint, CStr, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::time::Duration;
@@ -20,7 +20,7 @@ pub enum InterpretResult {
     InterpretRuntimeError,
 }
 
-pub fn clock_native(_argc: c_uint, _argv: *const Value) -> Value {
+pub fn clock_native(_argc: usize, _argv: *const Value) -> Value {
     Value::number(clock().as_secs_f64())
 }
 
@@ -63,7 +63,7 @@ pub struct CallFrame {
 pub struct Vm {
     // TODO: This is a Vec
     pub(crate) frames: [CallFrame; FRAMES_MAX],
-    pub(crate) frame_count: c_uint,
+    pub(crate) frame_count: usize,
 
     // TODO: This is a Vec
     pub(crate) stack: [Value; STACK_MAX],
@@ -176,7 +176,7 @@ impl Vm {
     }
 
     pub(crate) fn eprint_stack_trace(&mut self) {
-        for i in (0..self.frame_count as usize).rev() {
+        for i in (0..self.frame_count).rev() {
             let frame = &self.frames[i];
             let closure = unsafe { frame.closure.as_ref().unwrap() };
             let func = unsafe { closure.function.as_ref().unwrap() };
@@ -184,7 +184,7 @@ impl Vm {
             // The ip has already moved past the instruction that failed, so subtract
             // one extra.
             let base = func.chunk.code.base_ptr();
-            let instruction = unsafe { frame.ip.offset_from(base) - 1 } as c_uint;
+            let instruction = unsafe { frame.ip.offset_from(base) - 1 } as usize;
             let line = func.chunk.lines.get(instruction);
             eprintln!("[line {}] in {}", line, func.name());
         }
@@ -207,15 +207,15 @@ impl Vm {
         }
     }
 
-    pub(crate) fn peek(&mut self, offset: c_uint) -> Value {
+    pub(crate) fn peek(&mut self, offset: usize) -> Value {
         // Offset by one extra because stack_top points to the first _unused_ slot.
-        unsafe { *self.stack_top.sub(offset as usize + 1) }
+        unsafe { *self.stack_top.sub(offset + 1) }
     }
 }
 
 // Calls
 impl Vm {
-    pub(crate) fn call_value(&mut self, callee: Value, argc: c_uint) -> bool {
+    pub(crate) fn call_value(&mut self, callee: Value, argc: usize) -> bool {
         let gc = Gc {
             vm: self,
             compiler: ptr::null_mut(),
@@ -231,7 +231,7 @@ impl Vm {
             ObjType::BoundMethod => {
                 let callee = callee as *mut ObjBoundMethod;
                 let bound = unsafe { callee.as_ref().unwrap() };
-                unsafe { *self.stack_top.sub(argc as usize + 1) = bound.receiver };
+                unsafe { *self.stack_top.sub(argc + 1) = bound.receiver };
                 self.call(bound.method, argc)
             }
             ObjType::Class => {
@@ -239,7 +239,7 @@ impl Vm {
 
                 // Replace the class that was called with an empty instance of that class.
                 let instance = Value::obj(ObjInstance::new(gc, callee) as *mut Obj);
-                unsafe { *self.stack_top.sub(argc as usize + 1) = instance };
+                unsafe { *self.stack_top.sub(argc + 1) = instance };
 
                 // Init!
                 let klass = unsafe { callee.as_ref().unwrap() };
@@ -260,11 +260,11 @@ impl Vm {
             ObjType::Native => {
                 let callee = callee as *mut ObjNative;
                 let func = unsafe { callee.as_ref().unwrap() }.r#fn;
-                let argv = unsafe { self.stack_top.sub(argc as usize) };
+                let argv = unsafe { self.stack_top.sub(argc) };
                 let res = func(argc, argv);
 
                 // Pop the whole call at once an then push on the result.
-                self.stack_top = unsafe { self.stack_top.sub(argc as usize + 1) };
+                self.stack_top = unsafe { self.stack_top.sub(argc + 1) };
                 self.push(res);
                 true
             }
@@ -279,7 +279,7 @@ impl Vm {
         &mut self,
         klass: *const ObjClass,
         name: *const ObjString,
-        argc: c_uint,
+        argc: usize,
     ) -> bool {
         let klass = unsafe { klass.as_ref().unwrap() };
         let Some(method) = klass.methods.get(name) else {
@@ -294,7 +294,7 @@ impl Vm {
         self.call(method, argc)
     }
 
-    pub(crate) fn invoke(&mut self, name: *const ObjString, argc: c_uint) -> bool {
+    pub(crate) fn invoke(&mut self, name: *const ObjString, argc: usize) -> bool {
         let receiver = self.peek(argc);
         if !receiver.is_obj_type(ObjType::Instance) {
             self.runtime_error("Can't call method on non-instance.");
@@ -305,14 +305,14 @@ impl Vm {
         if let Some(value) = instance.fields.get(name) {
             // Turns out this was `obj.field(...)`, so replace the receiver with the
             // field value and then call it.
-            unsafe { *self.stack_top.sub(argc as usize + 1) = value };
+            unsafe { *self.stack_top.sub(argc + 1) = value };
             return self.call_value(value, argc);
         }
 
         self.invoke_from_class(instance.klass, name, argc)
     }
 
-    pub(crate) fn call(&mut self, closure: *mut ObjClosure, argc: c_uint) -> bool {
+    pub(crate) fn call(&mut self, closure: *mut ObjClosure, argc: usize) -> bool {
         let func = unsafe { closure.as_ref().unwrap().function.as_ref().unwrap() };
         if argc != func.arity {
             self.runtime_error(format!(
@@ -322,18 +322,18 @@ impl Vm {
             return false;
         }
 
-        if self.frame_count as usize == FRAMES_MAX {
+        if self.frame_count == FRAMES_MAX {
             self.runtime_error("Stack overflow.");
             return false;
         }
 
-        let frame = &mut self.frames[self.frame_count as usize];
+        let frame = &mut self.frames[self.frame_count];
         self.frame_count += 1;
 
         frame.closure = closure;
         frame.ip = func.chunk.code.base_ptr();
         // Subtract an extra slot for stack slot zero (which contains the caller).
-        frame.slots = unsafe { self.stack_top.sub(argc as usize + 1) };
+        frame.slots = unsafe { self.stack_top.sub(argc + 1) };
         true
     }
 
@@ -483,7 +483,7 @@ impl Vm {
             }};
         }
 
-        let mut frame: *mut CallFrame = frame_at![(self.frame_count as usize) - 1];
+        let mut frame: *mut CallFrame = frame_at![self.frame_count - 1];
 
         macro_rules! read_byte {
             () => {{
@@ -574,7 +574,7 @@ impl Vm {
                 // The ip has already moved past the instruction that failed, so subtract
                 // one extra.
                 let base = func.chunk.code.base_ptr();
-                let instruction = unsafe { frame.ip.offset_from(base) - 1 } as c_uint;
+                let instruction = unsafe { frame.ip.offset_from(base) - 1 } as usize;
                 func.chunk.disassemble_instruction(instruction);
             }
 
@@ -778,29 +778,29 @@ impl Vm {
                 }
 
                 Opcode::Call => {
-                    let argc = read_byte!() as c_uint;
+                    let argc = read_byte!() as usize;
                     let callee = self.peek(argc);
                     if !self.call_value(callee, argc) {
                         return Err(RuntimeError);
                     };
-                    frame = frame_at![(self.frame_count as usize) - 1];
+                    frame = frame_at![self.frame_count - 1];
                 }
                 Opcode::Invoke => {
                     let method = read_string!();
-                    let argc = read_byte!() as c_uint;
+                    let argc = read_byte!() as usize;
                     if !self.invoke(method, argc) {
                         return Err(RuntimeError);
                     };
-                    frame = frame_at![(self.frame_count as usize) - 1];
+                    frame = frame_at![self.frame_count - 1];
                 }
                 Opcode::SuperInvoke => {
                     let method = read_string!();
-                    let argc = read_byte!() as c_uint;
+                    let argc = read_byte!() as usize;
                     let superclass = unsafe { self.pop().as_obj::<ObjClass>() };
                     if !self.invoke_from_class(superclass, method, argc) {
                         return Err(RuntimeError);
                     }
-                    frame = frame_at![(self.frame_count as usize) - 1];
+                    frame = frame_at![self.frame_count - 1];
                 }
                 Opcode::Closure => {
                     let func = unsafe { read_constant!().as_obj::<ObjFunction>() };
@@ -841,7 +841,7 @@ impl Vm {
 
                     self.stack_top = unsafe { &*frame }.slots;
                     self.push(res);
-                    frame = &mut self.frames[(self.frame_count as usize) - 1];
+                    frame = &mut self.frames[self.frame_count - 1];
                 }
 
                 Opcode::Class => {

@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, CStr, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
 use once_cell::sync::Lazy;
@@ -8,8 +8,8 @@ use once_cell::sync::Lazy;
 pub struct Token {
     pub(crate) r#type: TokenType,
     pub(crate) start: *const c_char,
-    pub(crate) length: c_int,
-    pub(crate) line: c_int,
+    pub(crate) length: usize,
+    pub(crate) line: usize,
 }
 
 impl Token {
@@ -33,13 +33,12 @@ impl Token {
             r#type: ty,
             line: 0,
             start: text.as_ptr(),
-            length: text.to_bytes().len() as i32,
+            length: text.to_bytes().len(),
         }
     }
 
     pub(crate) fn text(&self) -> &str {
-        let bytes =
-            unsafe { std::slice::from_raw_parts(self.start as *const u8, self.length as usize) };
+        let bytes = unsafe { std::slice::from_raw_parts(self.start as *const u8, self.length) };
         std::str::from_utf8(bytes).expect("utf-8 source")
     }
 }
@@ -166,7 +165,7 @@ fn str_equal(a: &str, b: *const c_char, n: usize) -> bool {
 pub struct Scanner {
     start: *const c_char,
     current: *const c_char,
-    line: c_int,
+    line: usize,
 }
 
 impl Scanner {
@@ -372,7 +371,7 @@ impl Scanner {
             r#type: ty,
             start: self.start,
 
-            length: length.try_into().expect("token length fits in i32"),
+            length,
             line: self.line,
         }
     }
@@ -381,11 +380,7 @@ impl Scanner {
         Token {
             r#type: TokenType::Error,
             start: msg.as_ptr() as *const c_char,
-            length: msg
-                .to_bytes()
-                .len()
-                .try_into()
-                .expect("short error message"),
+            length: msg.to_bytes().len(),
             line: self.line,
         }
     }
