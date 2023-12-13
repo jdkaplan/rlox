@@ -42,19 +42,6 @@ impl fmt::Display for Obj {
     }
 }
 
-pub fn print_object(obj: *const Obj) {
-    match unsafe { obj.as_ref().unwrap() }.r#type {
-        ObjType::BoundMethod => print_bound_method(obj as *const ObjBoundMethod),
-        ObjType::Class => print_class(obj as *const ObjClass),
-        ObjType::Closure => print_closure(obj as *const ObjClosure),
-        ObjType::Function => print_function(obj as *const ObjFunction),
-        ObjType::Instance => print_instance(obj as *const ObjInstance),
-        ObjType::Native => print!("<native fn>"),
-        ObjType::String => print!("{}", unsafe { (obj as *const ObjString).as_ref().unwrap() }),
-        ObjType::Upvalue => print!("upvalue"),
-    }
-}
-
 impl Obj {
     pub(crate) fn free(obj: *const Obj, gc: &mut Gc) {
         match unsafe { obj.as_ref().unwrap() }.r#type {
@@ -142,10 +129,6 @@ impl fmt::Display for ObjBoundMethod {
     }
 }
 
-pub fn print_bound_method(bound: *const ObjBoundMethod) {
-    print_function(unsafe { bound.as_ref().unwrap().method.as_ref().unwrap() }.function);
-}
-
 #[repr(C)]
 pub struct ObjClass {
     pub(crate) obj: Obj,
@@ -169,12 +152,6 @@ impl fmt::Display for ObjClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", unsafe { &*self.name })
     }
-}
-
-pub fn print_class(klass: *const ObjClass) {
-    print!("{}", unsafe {
-        klass.as_ref().unwrap().name.as_ref().unwrap()
-    });
 }
 
 #[repr(C)]
@@ -212,10 +189,6 @@ impl fmt::Display for ObjClosure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", unsafe { &*self.function })
     }
-}
-
-pub fn print_closure(closure: *const ObjClosure) {
-    print_function(unsafe { closure.as_ref().unwrap() }.function);
 }
 
 #[repr(C)]
@@ -260,15 +233,6 @@ impl fmt::Display for ObjFunction {
     }
 }
 
-pub fn print_function(func: *const ObjFunction) {
-    let name = unsafe { func.as_ref().unwrap() }.name;
-    if name.is_null() {
-        print!("<script>");
-    } else {
-        print!("<fn {}>", unsafe { name.as_ref().unwrap() });
-    }
-}
-
 #[repr(C)]
 pub struct ObjInstance {
     pub(crate) obj: Obj,
@@ -291,20 +255,6 @@ impl fmt::Display for ObjInstance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} instance", unsafe { &*(*self.klass).name })
     }
-}
-
-pub fn print_instance(instance: *const ObjInstance) {
-    print!("{} instance", unsafe {
-        instance
-            .as_ref()
-            .unwrap()
-            .klass
-            .as_ref()
-            .unwrap()
-            .name
-            .as_ref()
-            .unwrap()
-    });
 }
 
 pub type NativeFn = fn(argc: c_uint, argv: *const Value) -> Value;

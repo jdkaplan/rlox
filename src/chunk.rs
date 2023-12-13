@@ -101,9 +101,7 @@ impl Chunk {
             print!("CONSTANT {:04} = ", i);
 
             let v = self.constants.get(i);
-            v.print();
-
-            println!();
+            println!("{}", v);
         }
 
         let mut offset = 0;
@@ -184,12 +182,8 @@ impl Chunk {
 
     fn constant_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
         let constant = *self.code.get(offset + 1);
-        print!("{: <16?} {:04} '", op, constant);
-
-        let v = self.constants.get(constant.into());
-        v.print();
-
-        println!("'");
+        let val = self.constants.get(constant.into());
+        print!("{: <16?} {:04} '{}'", op, constant, val);
         offset + 2
     }
 
@@ -214,13 +208,9 @@ impl Chunk {
     fn invoke_instruction(&self, op: Opcode, offset: c_uint) -> c_uint {
         let constant = *self.code.get(offset + 1);
         let argc = *self.code.get(offset + 2);
+        let val = self.constants.get(constant.into());
 
-        print!("{: <16?} ({:04} args) {:04} ", op, argc, constant);
-
-        let v = self.constants.get(constant.into());
-        v.print();
-
-        println!();
+        println!("{: <16?} ({:04} args) {:04} {}", op, argc, constant, val);
         offset + 3
     }
 
@@ -229,12 +219,9 @@ impl Chunk {
 
         let constant = *self.code.get(offset);
         offset += 1;
-        print!("{: <16?} {:04} ", op, constant);
 
-        let v = self.constants.get(constant.into());
-        v.print();
-
-        println!();
+        let val = self.constants.get(constant.into());
+        println!("{: <16?} {:04} {}", op, constant, val);
 
         let function = unsafe { self.constants.get(constant.into()).as_obj::<ObjFunction>() };
         let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;

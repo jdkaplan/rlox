@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::object::{print_object, Obj, ObjType};
+use crate::object::{Obj, ObjType};
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -102,23 +102,6 @@ impl fmt::Debug for Value {
                 },
             )
             .finish()
-    }
-}
-
-impl Value {
-    pub fn print(&self) {
-        match self.r#type {
-            ValueType::Bool => {
-                if unsafe { self.r#as.boolean } {
-                    print!("true")
-                } else {
-                    print!("false")
-                }
-            }
-            ValueType::Nil => print!("nil"),
-            ValueType::Number => print!("{}", unsafe { self.r#as.number }),
-            ValueType::Obj => print_object(unsafe { self.r#as.obj.as_mut().unwrap() }),
-        }
     }
 }
 
