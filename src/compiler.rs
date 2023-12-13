@@ -96,16 +96,6 @@ pub(crate) fn compile(vm: *mut Vm, source: *const c_char) -> *mut ObjFunction {
 }
 
 impl Parser {
-    pub(crate) fn init(&mut self, scanner: *mut Scanner, vm: *mut Vm) {
-        self.had_error = false;
-        self.panicking = false;
-
-        self.scanner = scanner;
-        self.compiler = ptr::null_mut();
-        self.klass = ptr::null_mut();
-        self.vm = vm;
-    }
-
     pub(crate) fn compiler_init(&mut self, compiler: *mut Compiler, mode: FunctionMode) {
         let gc = Gc::new(self.compiler, self.vm);
 

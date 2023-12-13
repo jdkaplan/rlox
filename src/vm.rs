@@ -161,6 +161,12 @@ impl Vm {
     }
 }
 
+impl Drop for Vm {
+    fn drop(&mut self) {
+        self.free()
+    }
+}
+
 // Errors
 impl Vm {
     pub(crate) fn runtime_error(&mut self, msg: impl AsRef<str>) {

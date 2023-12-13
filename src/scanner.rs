@@ -178,12 +178,6 @@ impl Scanner {
         }
     }
 
-    pub fn init(&mut self, source: *const c_char) {
-        self.start = source;
-        self.current = source;
-        self.line = 1;
-    }
-
     pub fn next_token(&mut self) -> Token {
         self.skip_ignored();
 
