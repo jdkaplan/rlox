@@ -1,4 +1,4 @@
-use std::ffi::{c_char, CStr};
+use std::ffi::c_char;
 use std::fmt;
 use std::num::Wrapping;
 use std::ptr;
@@ -169,8 +169,7 @@ impl ObjClosure {
     pub(crate) fn new(mut gc: Gc, function: *mut ObjFunction) -> *mut ObjClosure {
         // TODO: This is a Vec
         let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
-        let upvalues: *mut *mut ObjUpvalue =
-            gc.resize_array(ptr::null_mut(), 0, upvalue_count);
+        let upvalues: *mut *mut ObjUpvalue = gc.resize_array(ptr::null_mut(), 0, upvalue_count);
         for i in 0..upvalue_count {
             unsafe { (*upvalues.add(i)) = ptr::null_mut() };
         }
@@ -307,7 +306,7 @@ impl ObjString {
         str
     }
 
-    pub(crate) fn from_owned(mut gc: Gc, chars: *mut c_char, length: usize) -> *mut Self {
+    pub(crate) fn from_ptr(mut gc: Gc, chars: *mut c_char, length: usize) -> *mut Self {
         let hash = str_hash(chars, length);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
@@ -323,7 +322,9 @@ impl ObjString {
         Self::allocate(gc, chars, length, hash)
     }
 
-    pub(crate) fn from_borrowed(mut gc: Gc, chars: *const c_char, length: usize) -> *mut Self {
+    pub(crate) fn from_str(mut gc: Gc, s: &str) -> *mut Self {
+        let chars = s.as_ptr() as *const c_char;
+        let length = s.len();
         let hash = str_hash(chars, length);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
@@ -339,12 +340,6 @@ impl ObjString {
             *heap_chars.add(length) = '\0' as c_char;
         }
         Self::allocate(gc, heap_chars, length, hash)
-    }
-
-    pub(crate) fn from_static(gc: Gc, s: &'static CStr) -> *mut Self {
-        let chars = s.as_ptr() as *const c_char;
-        let length = s.to_bytes().len();
-        Self::from_borrowed(gc, chars, length)
     }
 }
 

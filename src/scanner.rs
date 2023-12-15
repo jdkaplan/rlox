@@ -1,48 +1,28 @@
-use std::ffi::{c_char, CStr, CString};
-use std::ptr;
-
-use once_cell::sync::Lazy;
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct Token {
+pub struct Token<'a> {
     pub(crate) r#type: TokenType,
-    pub(crate) start: *const c_char,
-    pub(crate) length: usize,
+    pub(crate) text: &'a str,
     pub(crate) line: usize,
 }
 
-impl Default for Token {
-    fn default() -> Self {
-        Self {
-            r#type: Default::default(),
-            start: ptr::null(),
-            length: Default::default(),
-            line: Default::default(),
-        }
-    }
-}
-
-impl Token {
-    pub(crate) fn synthetic(text: &'static CStr) -> Self {
-        let ty = match text.to_str().unwrap() {
+impl Token<'_> {
+    pub(crate) fn synthetic(text: &'static str) -> Self {
+        let ty = match text {
             "super" => TokenType::Super,
             "this" => TokenType::This,
-            "" => TokenType::Error,
             _ => unreachable!(),
         };
 
         Self {
             r#type: ty,
             line: 0,
-            start: text.as_ptr(),
-            length: text.to_bytes().len(),
+            text,
         }
     }
 
     pub(crate) fn text(&self) -> &str {
-        let bytes = unsafe { std::slice::from_raw_parts(self.start as *const u8, self.length) };
-        std::str::from_utf8(bytes).expect("utf-8 source")
+        self.text
     }
 }
 
@@ -109,19 +89,10 @@ fn is_digit(c: char) -> bool {
     c.is_ascii_digit()
 }
 
-fn keyword_or_identifier(start: *const c_char, current: *const c_char) -> TokenType {
-    // The chars tracked by the scanner _are not_ a null-terminated string. Be careful with lengths
-    // and comparisons!
-
-    // Safety: Both pointers point into the same C string. The current ponter was derived from the
-    // start pointer.
-    let n: usize = (unsafe { current.offset_from(start) })
-        .try_into()
-        .expect("identifier is short");
-
+fn keyword_or_identifier(text: &str) -> TokenType {
     macro_rules! kwd_if {
         ($kwd:expr, $ty:expr) => {
-            if str_equal($kwd, start, n) {
+            if text == $kwd {
                 return $ty;
             }
         };
@@ -147,36 +118,20 @@ fn keyword_or_identifier(start: *const c_char, current: *const c_char) -> TokenT
     TokenType::Identifier
 }
 
-fn str_equal(a: &str, b: *const c_char, n: usize) -> bool {
-    if a.len() != n {
-        return false;
-    }
-
-    let a = a.as_ptr();
-
-    for i in 0..n {
-        let aa = (unsafe { *a.add(i) }) as c_char;
-        let bb = unsafe { *b.add(i) };
-        if aa != bb {
-            return false;
-        }
-    }
-
-    true
-}
-
 #[repr(C)]
-pub struct Scanner {
-    start: *const c_char,
-    current: *const c_char,
+pub struct Scanner<'source> {
+    source: &'source str,
+    start: usize,
+    current: usize,
     line: usize,
 }
 
-impl Scanner {
-    pub fn new(source: *const c_char) -> Self {
+impl<'source> Scanner<'source> {
+    pub fn new(source: &'source str) -> Self {
         Self {
-            start: source,
-            current: source,
+            source,
+            start: 0,
+            current: 0,
             line: 1,
         }
     }
@@ -245,11 +200,7 @@ impl Scanner {
 
             '"' => self.scan_string(),
 
-            _ => {
-                static UNEXPECTED_CHARACTER: Lazy<CString> =
-                    Lazy::new(|| CString::new("Unexpected character.").unwrap());
-                self.make_error(&UNEXPECTED_CHARACTER)
-            }
+            _ => self.make_error("Unexpected character."),
         }
     }
 
@@ -286,7 +237,9 @@ impl Scanner {
             self.advance();
         }
 
-        let ty = keyword_or_identifier(self.start, self.current);
+        let text = &self.source[self.start..self.current];
+
+        let ty = keyword_or_identifier(text);
         self.make_token(ty)
     }
 
@@ -317,10 +270,7 @@ impl Scanner {
         }
 
         if self.at_eof() {
-            static UNTERMINATED_STRING: Lazy<CString> =
-                Lazy::new(|| CString::new("Unterminated string.").unwrap());
-
-            return self.make_error(&UNTERMINATED_STRING);
+            return self.make_error("Unterminated string.");
         }
 
         self.advance(); // peek `"`
@@ -332,9 +282,10 @@ impl Scanner {
     }
 
     fn peek(&self) -> char {
-        // Safety: This points into the source text, which is a null-terminated C string that
-        // lives for at least as long as the scanner.
-        (unsafe { *self.current }) as u8 as char
+        self.source[self.current..]
+            .chars()
+            .next()
+            .unwrap_or_default()
     }
 
     fn peek_next(&self) -> char {
@@ -342,17 +293,15 @@ impl Scanner {
             return '\0';
         }
 
-        // Safety: This points into the source text, which is a null-terminated C string that
-        // lives for at least as long as the scanner.
-        (unsafe { *self.current.add(1) }) as u8 as char
+        let mut chars = self.source[self.current..].chars();
+        chars.next().unwrap(); // peek 0
+        chars.next().unwrap_or_default() // peek 1
     }
 
     fn advance(&mut self) -> char {
-        // Safety: This points into the source text, which is a null-terminated C string that
-        // lives for at least as long as the scanner.
-        self.current = unsafe { self.current.add(1) };
-
-        (unsafe { *self.current.sub(1) }) as u8 as char
+        let c = self.peek();
+        self.current += c.len_utf8();
+        c
     }
 
     fn match_(&mut self, expected: char) -> bool {
@@ -369,22 +318,19 @@ impl Scanner {
     }
 
     fn make_token(&self, ty: TokenType) -> Token {
-        let length = (self.current as usize) - (self.start as usize);
+        let text = &self.source[self.start..self.current];
 
         Token {
             r#type: ty,
-            start: self.start,
-
-            length,
+            text,
             line: self.line,
         }
     }
 
-    fn make_error(&self, msg: &CStr) -> Token {
+    fn make_error<'a>(&self, msg: &'a str) -> Token<'a> {
         Token {
             r#type: TokenType::Error,
-            start: msg.as_ptr() as *const c_char,
-            length: msg.to_bytes().len(),
+            text: msg,
             line: self.line,
         }
     }

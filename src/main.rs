@@ -1,5 +1,4 @@
 use std::env;
-use std::ffi::CString;
 use std::io;
 use std::io::Write;
 use std::process;
@@ -38,12 +37,7 @@ fn repl() {
             Ok(0) => break,
 
             Ok(_n) => {
-                let Ok(source) = CString::new(line.clone()) else {
-                    eprintln!("error: the line was not a valid C string");
-                    continue;
-                };
-
-                _ = vm.interpret(&source);
+                _ = vm.interpret(&line);
             }
         }
     }
@@ -54,11 +48,6 @@ fn run_file(path: &str) {
 
     let Ok(source) = std::fs::read_to_string(path) else {
         eprintln!("error: could not read file at {:?}", path);
-        process::exit(74);
-    };
-
-    let Ok(source) = CString::new(source) else {
-        eprintln!("error: the source code was not a valid C string");
         process::exit(74);
     };
 

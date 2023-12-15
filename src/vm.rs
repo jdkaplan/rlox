@@ -1,9 +1,7 @@
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::c_char;
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::time::Duration;
-
-use once_cell::sync::Lazy;
 
 use crate::alloc::Gc;
 use crate::chunk::Opcode;
@@ -46,7 +44,7 @@ pub fn concatenate(mut gc: Gc, a: *const ObjString, b: *const ObjString) -> *mut
         *chars.add(length) = '\0' as c_char;
     }
 
-    ObjString::from_owned(gc, chars, length)
+    ObjString::from_ptr(gc, chars, length)
 }
 
 #[repr(C)]
@@ -134,11 +132,9 @@ impl Vm {
             compiler: ptr::null_mut(),
         };
 
-        static INIT_STR: Lazy<CString> = Lazy::new(|| CString::new("init").unwrap());
-        self.init_string = ObjString::from_static(gc, &INIT_STR);
+        self.init_string = ObjString::from_str(gc, "init");
 
-        static CLOCK_STR: Lazy<CString> = Lazy::new(|| CString::new("clock").unwrap());
-        self.define_native(&CLOCK_STR, clock_native);
+        self.define_native("clock", clock_native);
     }
 
     pub(crate) fn free(&mut self) {
@@ -372,7 +368,7 @@ impl Vm {
         true
     }
 
-    pub(crate) fn define_native(&mut self, name: &'static CStr, func: NativeFn) {
+    pub(crate) fn define_native(&mut self, name: &'static str, func: NativeFn) {
         let gc = Gc {
             vm: self,
             compiler: ptr::null_mut(),
@@ -383,7 +379,7 @@ impl Vm {
         //
         // TODO: Use Alloc stash instead
         {
-            self.push(Value::obj(ObjString::from_static(gc, name) as *mut Obj));
+            self.push(Value::obj(ObjString::from_str(gc, name) as *mut Obj));
             self.push(Value::obj(ObjNative::new(gc, func) as *mut Obj));
             self.globals.set(
                 gc,
@@ -445,7 +441,7 @@ impl Vm {
 
 // Execution
 impl Vm {
-    pub fn interpret(&mut self, source: &CStr) -> InterpretResult {
+    pub fn interpret(&mut self, source: &str) -> InterpretResult {
         let gc = Gc::new(ptr::null_mut(), self);
 
         let function = crate::compiler::compile(self, source);

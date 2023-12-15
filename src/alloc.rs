@@ -15,13 +15,13 @@ const GC_GROWTH_FACTOR: usize = 2;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub struct Gc {
+pub struct Gc<'compiler> {
     pub(crate) vm: *mut Vm,
-    pub(crate) compiler: *mut Compiler,
+    pub(crate) compiler: *mut Compiler<'compiler>,
 }
 
-impl Gc {
-    pub(crate) fn new(compiler: *mut Compiler, vm: *mut Vm) -> Self {
+impl<'compiler> Gc<'compiler> {
+    pub(crate) fn new(compiler: *mut Compiler<'compiler>, vm: *mut Vm) -> Self {
         Self { compiler, vm }
     }
 }
@@ -34,7 +34,7 @@ macro_rules! debug_log_gc {
 }
 
 // TODO: This part feels more like an Alloc
-impl Gc {
+impl Gc<'_> {
     pub fn reallocate<T>(&mut self, ptr: *mut T, old: usize, new: usize) -> *mut T {
         if self.vm.is_null() {
             return _reallocate(ptr, new);
@@ -99,7 +99,7 @@ fn counter() -> &'static Mutex<u8> {
     COUNT.get_or_init(|| Mutex::new(0))
 }
 
-impl Gc {
+impl Gc<'_> {
     pub fn collect_garbage(&mut self) {
         let mut count = counter().lock().unwrap();
         assert_eq!(*count, 0);
@@ -143,7 +143,7 @@ impl Gc {
 }
 
 // Mark
-impl Gc {
+impl Gc<'_> {
     fn mark_roots(&mut self) {
         let vm = unsafe { self.vm.as_mut().unwrap() };
 
@@ -218,7 +218,7 @@ impl Gc {
 }
 
 // Trace
-impl Gc {
+impl Gc<'_> {
     fn trace_references(&mut self) {
         debug_log_gc!("---- trace references");
         let vm = unsafe { self.vm.as_mut().unwrap() };
@@ -283,7 +283,7 @@ impl Gc {
 }
 
 // Sweep
-impl Gc {
+impl Gc<'_> {
     fn sweep(&mut self) {
         debug_log_gc!("---- sweep");
         let vm = unsafe { self.vm.as_mut().unwrap() };

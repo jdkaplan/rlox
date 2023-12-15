@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
 use std::ptr;
 
 use once_cell::sync::Lazy;
@@ -12,17 +11,13 @@ use crate::value::Value;
 use crate::vm::Vm;
 use crate::U8_COUNT;
 
-static EMPTY_STR: Lazy<CString> = Lazy::new(|| CString::new("").unwrap());
-static THIS_STR: Lazy<CString> = Lazy::new(|| CString::new("this").unwrap());
-static SUPER_STR: Lazy<CString> = Lazy::new(|| CString::new("super").unwrap());
-
 #[repr(C)]
-pub struct Parser {
-    current: Token,
-    previous: Token,
+pub struct Parser<'source> {
+    current: Token<'source>,
+    previous: Token<'source>,
 
-    scanner: *mut Scanner,
-    compiler: *mut Compiler,
+    scanner: *mut Scanner<'source>,
+    compiler: *mut Compiler<'source>,
     klass: *mut ClassCompiler,
 
     had_error: bool,
@@ -32,12 +27,12 @@ pub struct Parser {
 }
 
 #[repr(C)]
-pub struct Compiler {
-    pub(crate) enclosing: *mut Compiler,
+pub struct Compiler<'source> {
+    pub(crate) enclosing: *mut Compiler<'source>,
     pub(crate) function: *mut ObjFunction,
     mode: FunctionMode,
 
-    locals: Vec<Local>,
+    locals: Vec<Local<'source>>,
 
     // The maximum upvalue index is tracked by function, so it's not easy to make this a Vec,
     // even though it seems like it should be one.
@@ -46,8 +41,12 @@ pub struct Compiler {
     scope_depth: usize,
 }
 
-impl Compiler {
-    fn new(enclosing: *mut Compiler, function: *mut ObjFunction, mode: FunctionMode) -> Self {
+impl<'enclosing> Compiler<'enclosing> {
+    fn new(
+        enclosing: *mut Compiler<'enclosing>,
+        function: *mut ObjFunction,
+        mode: FunctionMode,
+    ) -> Self {
         let mut compiler = Self {
             enclosing,
             function,
@@ -81,8 +80,8 @@ pub struct ClassCompiler {
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct Local {
-    name: Token,
+pub struct Local<'source> {
+    name: Token<'source>,
     depth: Option<usize>,
     is_captured: bool,
 }
@@ -94,8 +93,8 @@ pub struct Upvalue {
     is_local: bool,
 }
 
-pub(crate) fn compile(vm: *mut Vm, source: &CStr) -> *mut ObjFunction {
-    let mut scanner = Scanner::new(source.as_ptr());
+pub(crate) fn compile(vm: *mut Vm, source: &str) -> *mut ObjFunction {
+    let mut scanner = Scanner::new(source);
     let mut parser = Parser::new(&mut scanner, vm);
 
     parser.start_compiler(FunctionMode::Script);
@@ -112,8 +111,8 @@ pub(crate) fn compile(vm: *mut Vm, source: &CStr) -> *mut ObjFunction {
     }
 }
 
-impl Parser {
-    pub(crate) fn new(scanner: &mut Scanner, vm: *mut Vm) -> Self {
+impl<'source> Parser<'source> {
+    pub(crate) fn new(scanner: &mut Scanner<'source>, vm: *mut Vm) -> Self {
         let mut parser = Self {
             // Will be overwritten by the immediate call to advance.
             current: Token::default(),
@@ -251,7 +250,7 @@ impl Parser {
     }
 }
 
-impl Parser {
+impl Parser<'_> {
     pub(crate) fn current_chunk(&mut self) -> &mut Chunk {
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
         let function = unsafe { compiler.function.as_mut().unwrap() };
@@ -332,7 +331,7 @@ impl Parser {
     }
 }
 
-impl Parser {
+impl<'source> Parser<'source> {
     pub(crate) fn scope_begin(&mut self) {
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
         compiler.scope_depth += 1;
@@ -360,7 +359,7 @@ impl Parser {
         }
     }
 
-    pub(crate) fn add_local(&mut self, name: Token) {
+    pub(crate) fn add_local<'token: 'source>(&mut self, name: Token<'token>) {
         if unsafe { self.compiler.as_mut().unwrap() }.locals.len() == U8_COUNT {
             self.error("Too many local variables in function.");
             return;
@@ -375,12 +374,12 @@ impl Parser {
     }
 }
 
-impl Compiler {
+impl Compiler<'_> {
     fn reserve_self_slot(&mut self) {
         let name = if self.mode != FunctionMode::Function {
-            Token::synthetic(&THIS_STR)
+            Token::synthetic("this")
         } else {
-            Token::synthetic(&EMPTY_STR)
+            Token::default()
         };
 
         let local = Local {
@@ -403,13 +402,13 @@ impl Compiler {
     }
 }
 
-impl Parser {
+impl Parser<'_> {
     pub(crate) fn identifier_constant(&mut self, name: *const Token) -> u8 {
         let gc = Gc::new(self.compiler, self.vm);
 
         let name = unsafe { name.as_ref().unwrap() };
 
-        let s = ObjString::from_borrowed(gc, name.start, name.length);
+        let s = ObjString::from_str(gc, name.text);
         self.make_constant(Value::obj(s as *mut Obj))
     }
 
@@ -593,7 +592,7 @@ impl Precedence {
     }
 }
 
-impl Parser {
+impl Parser<'_> {
     pub(crate) fn argument_list(&mut self) -> u8 {
         let mut argc: u32 = 0;
         if !self.check(TokenType::RightParen) {
@@ -746,13 +745,17 @@ pub(crate) fn number(parser: &mut Parser, _can_assign: bool) {
 pub(crate) fn string(parser: &mut Parser, _can_assign: bool) {
     let gc = Gc::new(parser.compiler, parser.vm);
 
-    // Drop the leading quote '"'
-    let start = unsafe { parser.previous.start.add(1) };
-    // Drop the trailing quote '"' and one more because pointer math.
-    let length = parser.previous.length - 2;
+    let content = parser
+        .previous
+        .text
+        .strip_prefix('"')
+        .expect("string literal starts with double-quote")
+        .strip_suffix('"')
+        .expect("string literal ends with double-quote");
 
-    let s = ObjString::from_borrowed(gc, start, length);
-    // TODO: This is where handling escape sequence would go.
+    // TODO: This is where handling escape sequences would go.
+
+    let s = ObjString::from_str(gc, content);
     parser.emit_constant(Value::obj(s as *mut Obj));
 }
 
@@ -773,15 +776,15 @@ pub(crate) fn super_(parser: &mut Parser, _can_assign: bool) {
     parser.consume(TokenType::Identifier, "Expect superclass method name.");
     let name = parser.identifier_constant(&parser.previous);
 
-    parser.named_variable(&Token::synthetic(&THIS_STR), false);
+    parser.named_variable(&Token::synthetic("this"), false);
 
     if parser.match_(TokenType::LeftParen) {
         let argc = parser.argument_list();
-        parser.named_variable(&Token::synthetic(&SUPER_STR), false);
+        parser.named_variable(&Token::synthetic("super"), false);
         parser.emit_bytes(Opcode::SuperInvoke, name);
         parser.emit_byte(argc);
     } else {
-        parser.named_variable(&Token::synthetic(&SUPER_STR), false);
+        parser.named_variable(&Token::synthetic("super"), false);
         parser.emit_bytes(Opcode::GetSuper, name);
     }
 }
@@ -807,7 +810,7 @@ pub(crate) fn unary(parser: &mut Parser, _can_assign: bool) {
     }
 }
 
-impl Parser {
+impl Parser<'_> {
     pub(crate) fn declaration(&mut self) {
         if self.match_(TokenType::Class) {
             self.decl_class();
@@ -896,7 +899,7 @@ impl Parser {
             }
 
             self.scope_begin();
-            self.add_local(Token::synthetic(&SUPER_STR));
+            self.add_local(Token::synthetic("super"));
             self.define_variable(0);
 
             self.named_variable(&class_name, false);
@@ -1133,7 +1136,7 @@ impl Parser {
 
         let function = unsafe { compiler.function.as_mut().unwrap() };
         if mode != FunctionMode::Script {
-            function.name = ObjString::from_borrowed(gc, self.previous.start, self.previous.length);
+            function.name = ObjString::from_str(gc, self.previous.text);
         }
 
         self.scope_begin();
@@ -1237,9 +1240,5 @@ pub(crate) fn make_rules() -> Rules {
 }
 
 pub(crate) fn identifiers_equal(a: &Token, b: &Token) -> bool {
-    if a.length != b.length {
-        return false;
-    }
-
-    a.text() == b.text()
+    a.text == b.text
 }
