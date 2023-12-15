@@ -445,7 +445,7 @@ impl Vm {
 
 // Execution
 impl Vm {
-    pub fn interpret(&mut self, source: *const c_char) -> InterpretResult {
+    pub fn interpret(&mut self, source: &CStr) -> InterpretResult {
         let gc = Gc::new(ptr::null_mut(), self);
 
         let function = crate::compiler::compile(self, source);

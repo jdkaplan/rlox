@@ -12,20 +12,23 @@ pub struct Token {
     pub(crate) line: usize,
 }
 
-impl Token {
-    pub(crate) fn zero() -> Self {
+impl Default for Token {
+    fn default() -> Self {
         Self {
-            r#type: TokenType::Error,
-            start: ptr::null_mut(),
-            length: 0,
-            line: 0,
+            r#type: Default::default(),
+            start: ptr::null(),
+            length: Default::default(),
+            line: Default::default(),
         }
     }
+}
 
+impl Token {
     pub(crate) fn synthetic(text: &'static CStr) -> Self {
         let ty = match text.to_str().unwrap() {
             "super" => TokenType::Super,
             "this" => TokenType::This,
+            "" => TokenType::Error,
             _ => unreachable!(),
         };
 
@@ -44,7 +47,7 @@ impl Token {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub enum TokenType {
     // Single-character tokens
     LeftParen,
@@ -93,6 +96,7 @@ pub enum TokenType {
     While,
 
     // Synthetic tokens
+    #[default]
     Error,
     Eof,
 }

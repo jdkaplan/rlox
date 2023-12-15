@@ -43,7 +43,7 @@ fn repl() {
                     continue;
                 };
 
-                _ = vm.interpret(source.as_ptr());
+                _ = vm.interpret(&source);
             }
         }
     }
@@ -62,7 +62,7 @@ fn run_file(path: &str) {
         process::exit(74);
     };
 
-    match vm.interpret(source.as_ptr()) {
+    match vm.interpret(&source) {
         InterpretResult::InterpretOk => {}
         InterpretResult::InterpretCompileError => process::exit(65),
         InterpretResult::InterpretRuntimeError => process::exit(70),

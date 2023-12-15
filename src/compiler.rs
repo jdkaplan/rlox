@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::ffi::{c_char, CString};
-use std::mem::MaybeUninit;
+use std::ffi::{CStr, CString};
 use std::ptr;
 
 use once_cell::sync::Lazy;
@@ -13,6 +12,7 @@ use crate::value::Value;
 use crate::vm::Vm;
 use crate::U8_COUNT;
 
+static EMPTY_STR: Lazy<CString> = Lazy::new(|| CString::new("").unwrap());
 static THIS_STR: Lazy<CString> = Lazy::new(|| CString::new("this").unwrap());
 static SUPER_STR: Lazy<CString> = Lazy::new(|| CString::new("super").unwrap());
 
@@ -37,13 +37,31 @@ pub struct Compiler {
     pub(crate) function: *mut ObjFunction,
     mode: FunctionMode,
 
-    // TODO: This is a Vec
-    locals: [Local; U8_COUNT],
-    local_count: usize,
+    locals: Vec<Local>,
+
+    // The maximum upvalue index is tracked by function, so it's not easy to make this a Vec,
+    // even though it seems like it should be one.
+    upvalues: [Upvalue; U8_COUNT],
 
     scope_depth: usize,
+}
 
-    upvalues: [Upvalue; U8_COUNT],
+impl Compiler {
+    fn new(enclosing: *mut Compiler, function: *mut ObjFunction, mode: FunctionMode) -> Self {
+        let mut compiler = Self {
+            enclosing,
+            function,
+            mode,
+
+            locals: Vec::with_capacity(U8_COUNT),
+            upvalues: [Upvalue::default(); U8_COUNT],
+
+            scope_depth: 0,
+        };
+        // Reserve stack slot zero for the currently executing function.
+        compiler.reserve_self_slot();
+        compiler
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -61,7 +79,7 @@ pub struct ClassCompiler {
     has_superclass: bool,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct Local {
     name: Token,
@@ -69,19 +87,18 @@ pub struct Local {
     is_captured: bool,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct Upvalue {
     index: u8,
     is_local: bool,
 }
 
-pub(crate) fn compile(vm: *mut Vm, source: *const c_char) -> *mut ObjFunction {
-    let mut scanner = Scanner::new(source);
+pub(crate) fn compile(vm: *mut Vm, source: &CStr) -> *mut ObjFunction {
+    let mut scanner = Scanner::new(source.as_ptr());
     let mut parser = Parser::new(&mut scanner, vm);
 
-    let mut c = MaybeUninit::uninit();
-    parser.compiler_init(c.as_mut_ptr(), FunctionMode::Script);
+    parser.start_compiler(FunctionMode::Script);
 
     while !parser.match_(TokenType::Eof) {
         parser.declaration();
@@ -96,44 +113,11 @@ pub(crate) fn compile(vm: *mut Vm, source: *const c_char) -> *mut ObjFunction {
 }
 
 impl Parser {
-    pub(crate) fn compiler_init(&mut self, compiler: *mut Compiler, mode: FunctionMode) {
-        let gc = Gc::new(self.compiler, self.vm);
-
-        let compiler_ref = unsafe { compiler.as_mut().unwrap() };
-
-        compiler_ref.enclosing = self.compiler;
-        compiler_ref.function = ptr::null_mut();
-        compiler_ref.mode = mode;
-        compiler_ref.local_count = 0;
-        compiler_ref.scope_depth = 0;
-        compiler_ref.function = ObjFunction::new(gc);
-
-        self.compiler = compiler;
-
-        // Reserve stack slot zero for the currently executing function.
-        let compiler = unsafe { self.compiler.as_mut().unwrap() };
-        let local = compiler.locals.get_mut(compiler.local_count).unwrap();
-        compiler.local_count += 1;
-
-        local.depth = Some(0);
-        local.is_captured = false;
-        if mode != FunctionMode::Function {
-            // local.name = Token::synthetic(&THIS_STR);
-            local.name.start = THIS_STR.as_ptr();
-            local.name.length = 4;
-        } else {
-            static EMPTY_STR: Lazy<CString> = Lazy::new(|| CString::new("").unwrap());
-
-            local.name.start = EMPTY_STR.as_ptr();
-            local.name.length = 0;
-        }
-    }
-
     pub(crate) fn new(scanner: &mut Scanner, vm: *mut Vm) -> Self {
         let mut parser = Self {
             // Will be overwritten by the immediate call to advance.
-            current: Token::zero(),
-            previous: Token::zero(),
+            current: Token::default(),
+            previous: Token::default(),
 
             compiler: ptr::null_mut(),
             klass: ptr::null_mut(),
@@ -148,9 +132,19 @@ impl Parser {
         parser
     }
 
+    pub(crate) fn start_compiler(&mut self, mode: FunctionMode) {
+        let gc = Gc::new(self.compiler, self.vm);
+        let function = ObjFunction::new(gc);
+
+        let compiler = Compiler::new(self.compiler, function, mode);
+
+        self.compiler = Box::into_raw(Box::new(compiler));
+    }
+
     pub(crate) fn end_compiler(&mut self) -> *mut ObjFunction {
         self.emit_return();
-        let compiler = unsafe { self.compiler.as_mut().unwrap() };
+
+        let compiler = unsafe { Box::from_raw(self.compiler) };
         let function = unsafe { compiler.function.as_mut().unwrap() };
 
         #[cfg(feature = "print_code")]
@@ -349,45 +343,63 @@ impl Parser {
         compiler.scope_depth -= 1;
 
         // TODO: OP_POP_N/OP_CLOSE_UPVALUE_N is a good optimization here.
-        while compiler.local_count > 0
-            && compiler.locals[compiler.local_count - 1].depth.unwrap_or(0) > compiler.scope_depth
-        {
-            if compiler.locals[compiler.local_count - 1].is_captured {
+        while let Some(local) = compiler.locals.last() {
+            let Some(depth) = local.depth else {
+                break;
+            };
+            if depth <= compiler.scope_depth {
+                break;
+            }
+
+            if local.is_captured {
                 self.emit_byte(Opcode::CloseUpvalue);
             } else {
                 self.emit_byte(Opcode::Pop);
             }
-            compiler.local_count -= 1;
+            compiler.locals.pop();
         }
     }
 
     pub(crate) fn add_local(&mut self, name: Token) {
-        if unsafe { self.compiler.as_mut().unwrap() }.local_count == U8_COUNT {
+        if unsafe { self.compiler.as_mut().unwrap() }.locals.len() == U8_COUNT {
             self.error("Too many local variables in function.");
             return;
         }
 
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
-        let local = compiler.locals.get_mut(compiler.local_count).unwrap();
-        compiler.local_count += 1;
-
-        local.name = name;
-        local.depth = None; // declared: reserved without value
-        local.is_captured = false;
+        compiler.locals.push(Local {
+            name,
+            depth: None, // declared: reserved without value
+            is_captured: false,
+        });
     }
 }
 
 impl Compiler {
+    fn reserve_self_slot(&mut self) {
+        let name = if self.mode != FunctionMode::Function {
+            Token::synthetic(&THIS_STR)
+        } else {
+            Token::synthetic(&EMPTY_STR)
+        };
+
+        let local = Local {
+            name,
+            depth: Some(0),
+            is_captured: false,
+        };
+
+        self.locals.push(local);
+    }
+
     pub(crate) fn mark_initialized(&mut self) {
         if self.scope_depth == 0 {
             // Global variables don't have their initialization tracked like this.
             return;
         }
 
-        // TODO: This is a Vec
-        let local_count = self.local_count - 1;
-        self.locals.get_mut(local_count).unwrap().depth = Some(self.scope_depth);
-        // defined: value available at a certain depth
+        let local = self.locals.last_mut().unwrap();
+        local.depth = Some(self.scope_depth);
     }
 }
 
@@ -405,8 +417,7 @@ impl Parser {
         // Parser is only used to report errors.
         // Compiler is used to resolve locals.
 
-        for i in (0..compiler.local_count).rev() {
-            let local = compiler.locals.get(i).unwrap();
+        for (i, local) in compiler.locals.iter().enumerate().rev() {
             if identifiers_equal(name, &local.name) {
                 if local.depth.is_none() {
                     self.error("Can't read local variable in its own initializer.");
@@ -430,7 +441,7 @@ impl Parser {
         let upvalue_count = function.upvalue_count;
 
         for i in 0..upvalue_count {
-            let upvalue = compiler.upvalues.get(i).unwrap();
+            let upvalue = compiler.upvalues[i];
             if upvalue.index == index && upvalue.is_local == is_local {
                 return Some(i);
             }
@@ -441,10 +452,9 @@ impl Parser {
             return None;
         }
 
-        // TODO: This is a Vec
-        let upvalue = compiler.upvalues.get_mut(upvalue_count).unwrap();
-        upvalue.is_local = is_local;
+        let upvalue = &mut compiler.upvalues[function.upvalue_count];
         upvalue.index = index;
+        upvalue.is_local = is_local;
 
         function.upvalue_count += 1;
         Some(function.upvalue_count - 1) // The _previous_ count is the new item's index
@@ -482,9 +492,7 @@ impl Parser {
         }
 
         let name = self.previous;
-        let local_count = compiler.local_count;
-        for i in (0..local_count).rev() {
-            let local = compiler.locals[i];
+        for local in compiler.locals.iter().rev() {
             if local.depth < Some(compiler.scope_depth) {
                 break;
             }
@@ -1117,8 +1125,7 @@ impl Parser {
     }
 
     pub(crate) fn function(&mut self, mode: FunctionMode) {
-        let mut compiler = MaybeUninit::uninit();
-        self.compiler_init(compiler.as_mut_ptr(), mode);
+        self.start_compiler(mode);
 
         let gc = Gc::new(self.compiler, self.vm);
 
@@ -1160,7 +1167,7 @@ impl Parser {
 
         let function = unsafe { function.as_ref().unwrap() };
         for i in 0..function.upvalue_count {
-            let upvalue = compiler.upvalues.get(i).unwrap();
+            let upvalue = &compiler.upvalues[i];
             self.emit_byte(if upvalue.is_local { 1 } else { 0 });
             self.emit_byte(upvalue.index);
         }
