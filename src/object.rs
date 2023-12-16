@@ -341,6 +341,23 @@ impl ObjString {
         }
         Self::allocate(gc, heap_chars, length, hash)
     }
+
+    pub(crate) fn concatenate(
+        mut gc: Gc,
+        a: *const ObjString,
+        b: *const ObjString,
+    ) -> *mut ObjString {
+        let length = unsafe { &*a }.length + unsafe { &*b }.length;
+        let chars = gc.resize_array(std::ptr::null_mut(), 0, length + 1);
+
+        unsafe {
+            std::ptr::copy_nonoverlapping((*a).chars, chars, (*a).length);
+            std::ptr::copy_nonoverlapping((*b).chars, chars.add((*a).length), (*b).length);
+            *chars.add(length) = '\0' as c_char;
+        }
+
+        ObjString::from_ptr(gc, chars, length)
+    }
 }
 
 fn str_hash(chars: *const c_char, length: usize) -> u32 {
