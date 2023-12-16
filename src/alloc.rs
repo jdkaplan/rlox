@@ -263,7 +263,7 @@ impl Gc<'_> {
 
                 self.mark_obj(function.name as *mut Obj);
                 for i in 0..function.chunk.constants.len() {
-                    self.mark_value(*function.chunk.constants.get(i));
+                    self.mark_value(function.chunk.constants[i]);
                 }
             }
             ObjType::Instance => {

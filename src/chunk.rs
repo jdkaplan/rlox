@@ -3,48 +3,13 @@ use std::fmt;
 use crate::alloc::Gc;
 use crate::object::ObjFunction;
 use crate::value::Value;
-use crate::vec::Vec;
 
-macro_rules! delegate {
-    ($Src:ty, $Tgt:ty) => {
-        impl std::ops::Deref for $Src {
-            type Target = $Tgt;
-            fn deref(&self) -> &$Tgt {
-                &self.0
-            }
-        }
-
-        impl std::ops::DerefMut for $Src {
-            fn deref_mut(&mut self) -> &mut $Tgt {
-                &mut self.0
-            }
-        }
-    };
-}
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct Bytecode(Vec<u8>);
-
-delegate!(Bytecode, Vec<u8>);
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct Lines(Vec<usize>);
-
-delegate!(Lines, Vec<usize>);
-
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct Values(Vec<Value>);
-
-delegate!(Values, Vec<Value>);
-
+#[derive(Default)]
 #[repr(C)]
 pub struct Chunk {
-    pub(crate) code: Bytecode,
-    pub(crate) constants: Values,
-    pub(crate) lines: Lines,
+    pub(crate) code: Vec<u8>,
+    pub(crate) constants: Vec<Value>,
+    pub(crate) lines: Vec<usize>,
 }
 
 impl fmt::Debug for Chunk {
@@ -60,21 +25,9 @@ impl fmt::Debug for Chunk {
 }
 
 impl Chunk {
-    pub fn init(&mut self) {
-        self.code.init();
-        self.constants.init();
-        self.lines.init();
-    }
-
-    pub fn free(&mut self, gc: &mut Gc) {
-        self.code.free(gc);
-        self.constants.free(gc);
-        self.lines.free(gc);
-    }
-
-    pub fn write_byte(&mut self, gc: Gc, byte: u8, line: usize) {
-        self.code.push(gc, byte);
-        self.lines.push(gc, line);
+    pub fn write_byte(&mut self, _gc: Gc, byte: u8, line: usize) {
+        self.code.push(byte);
+        self.lines.push(line);
     }
 
     pub fn add_constant(&mut self, gc: Gc, value: Value) -> u8 {
@@ -85,7 +38,7 @@ impl Chunk {
         //
         // TODO: Use Alloc stash
         unsafe { gc.vm.as_mut().unwrap() }.push(value);
-        self.constants.push(gc, value);
+        self.constants.push(value);
         unsafe { gc.vm.as_mut().unwrap() }.pop();
 
         idx as u8
@@ -99,10 +52,7 @@ impl Chunk {
         println!("== {} ==", name);
 
         for i in 0..self.constants.len() {
-            print!("CONSTANT {:04} = ", i);
-
-            let v = self.constants.get(i);
-            println!("{}", v);
+            println!("CONSTANT {:04} = {}", i, self.constants[i]);
         }
 
         let mut offset = 0;
@@ -114,13 +64,13 @@ impl Chunk {
     pub(crate) fn disassemble_instruction(&self, offset: usize) -> usize {
         print!("{:04} ", offset);
 
-        if offset > 0 && self.lines.get(offset) == self.lines.get(offset - 1) {
+        if offset > 0 && self.lines[offset] == self.lines[offset - 1] {
             print!("   | ");
         } else {
-            print!("{:4} ", self.lines.get(offset));
+            print!("{:4} ", self.lines[offset]);
         }
 
-        let opcode = *self.code.get(offset);
+        let opcode = self.code[offset];
         let Ok(opcode) = opcode.try_into() else {
             println!("Unknown opcode: {}", opcode);
             return offset + 1;
@@ -176,21 +126,21 @@ impl Chunk {
     }
 
     fn byte_instruction(&self, op: Opcode, offset: usize) -> usize {
-        let slot = self.code.get(offset + 1);
+        let slot = self.code[offset + 1];
         println!("{: <16?} {:04}", op, slot);
         offset + 2
     }
 
     fn constant_instruction(&self, op: Opcode, offset: usize) -> usize {
-        let constant = *self.code.get(offset + 1);
-        let val = self.constants.get(constant.into());
+        let constant = self.code[offset + 1];
+        let val = self.constants[constant as usize];
         print!("{: <16?} {:04} '{}'", op, constant, val);
         offset + 2
     }
 
     fn jump_instruction(&self, op: Opcode, offset: usize) -> usize {
-        let hi: u16 = (*self.code.get(offset + 1)).into();
-        let lo: u16 = (*self.code.get(offset + 2)).into();
+        let hi: u16 = self.code[offset + 1].into();
+        let lo: u16 = self.code[offset + 2].into();
         let target = offset + 3 + ((hi << 8 | lo) as usize);
 
         println!("{: <16?} {:04} -> {}", op, offset, target);
@@ -198,8 +148,8 @@ impl Chunk {
     }
 
     fn loop_instruction(&self, op: Opcode, offset: usize) -> usize {
-        let hi: u16 = (*self.code.get(offset + 1)).into();
-        let lo: u16 = (*self.code.get(offset + 2)).into();
+        let hi: u16 = self.code[offset + 1].into();
+        let lo: u16 = self.code[offset + 2].into();
         let target = offset + 3 - ((hi << 8 | lo) as usize);
 
         println!("{: <16?} {:04} -> {}", op, offset, target);
@@ -207,9 +157,9 @@ impl Chunk {
     }
 
     fn invoke_instruction(&self, op: Opcode, offset: usize) -> usize {
-        let constant = *self.code.get(offset + 1);
-        let argc = *self.code.get(offset + 2);
-        let val = self.constants.get(constant.into());
+        let constant = self.code[offset + 1];
+        let argc = self.code[offset + 2];
+        let val = self.constants[constant as usize];
 
         println!("{: <16?} ({:04} args) {:04} {}", op, argc, constant, val);
         offset + 3
@@ -218,19 +168,19 @@ impl Chunk {
     fn closure_instruction(&self, op: Opcode, mut offset: usize) -> usize {
         offset += 1;
 
-        let constant = *self.code.get(offset);
+        let constant = self.code[offset];
         offset += 1;
 
-        let val = self.constants.get(constant.into());
+        let val = self.constants[constant as usize];
         println!("{: <16?} {:04} {}", op, constant, val);
 
-        let function = unsafe { self.constants.get(constant.into()).as_obj::<ObjFunction>() };
+        let function = unsafe { self.constants[constant as usize].as_obj::<ObjFunction>() };
         let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
         for _ in 0..upvalue_count {
-            let is_local = *self.code.get(offset);
+            let is_local = self.code[offset];
             offset += 1;
 
-            let index = *self.code.get(offset);
+            let index = self.code[offset];
             offset += 1;
 
             let ty = if is_local == 0 { "upvalue " } else { "local" };

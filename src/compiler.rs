@@ -308,8 +308,8 @@ impl Parser<'_> {
             return;
         }
 
-        chunk.code.set(offset, ((jump >> 8) & 0xff) as u8);
-        chunk.code.set(offset + 1, (jump & 0xff) as u8);
+        chunk.code[offset] = ((jump >> 8) & 0xff) as u8;
+        chunk.code[offset + 1] = (jump & 0xff) as u8;
     }
 
     pub(crate) fn emit_return(&mut self) {

@@ -5,7 +5,6 @@ mod object;
 mod scanner;
 mod table;
 mod value;
-mod vec;
 mod vm;
 
 pub use vm::{InterpretError, InterpretResult, Vm};

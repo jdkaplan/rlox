@@ -54,7 +54,7 @@ impl Obj {
             ObjType::Closure => gc.free(obj as *mut ObjClosure),
             ObjType::Function => {
                 let function = obj as *mut ObjFunction;
-                unsafe { function.as_mut().unwrap() }.chunk.free(gc);
+                std::mem::take(&mut unsafe { function.as_mut().unwrap() }.chunk);
                 gc.free(function)
             }
             ObjType::Instance => {
@@ -212,7 +212,7 @@ impl ObjFunction {
             (*function).arity = 0;
             (*function).upvalue_count = 0;
             (*function).name = ptr::null_mut();
-            (*function).chunk.init();
+            forget_uninit!(&mut (*function).chunk);
         }
         function
     }

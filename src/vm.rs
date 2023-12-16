@@ -176,9 +176,9 @@ impl Vm {
 
             // The ip has already moved past the instruction that failed, so subtract
             // one extra.
-            let base = func.chunk.code.base_ptr();
+            let base = ptr::addr_of!(func.chunk.code[0]);
             let instruction = unsafe { frame.ip.offset_from(base) - 1 } as usize;
-            let line = func.chunk.lines.get(instruction);
+            let line = func.chunk.lines[instruction];
             eprintln!("[line {}] in {}", line, func.name());
         }
     }
@@ -303,7 +303,7 @@ impl Vm {
     }
 
     pub(crate) fn call(&mut self, closure: *mut ObjClosure, argc: usize) -> RuntimeResult<()> {
-        let func = unsafe { closure.as_ref().unwrap().function.as_ref().unwrap() };
+        let func = unsafe { closure.as_mut().unwrap().function.as_mut().unwrap() };
         if argc != func.arity {
             return Err(self.runtime_error(format!(
                 "Expected {} arguments but got {}.",
@@ -319,7 +319,7 @@ impl Vm {
         self.frame_count += 1;
 
         frame.closure = closure;
-        frame.ip = func.chunk.code.base_ptr();
+        frame.ip = ptr::addr_of_mut!(func.chunk.code[0]);
         // Subtract an extra slot for stack slot zero (which contains the caller).
         frame.slots = unsafe { self.stack_top.sub(argc + 1) };
         Ok(())
@@ -491,9 +491,8 @@ impl Vm {
         macro_rules! read_constant {
             () => {{
                 let idx = read_byte!();
-                let constants: &crate::chunk::Values =
-                    &unsafe { &*(&*(*frame).closure).function }.chunk.constants;
-                unsafe { *constants.base_ptr().offset(idx as isize) }
+                let constants = &unsafe { &*(&*(*frame).closure).function }.chunk.constants;
+                unsafe { constants[idx as usize] }
             }};
         }
 
@@ -558,7 +557,7 @@ impl Vm {
 
                 // The ip has already moved past the instruction that failed, so subtract
                 // one extra.
-                let base = func.chunk.code.base_ptr();
+                let base = ptr::addr_of!(func.chunk.code[0]);
                 let instruction = unsafe { frame.ip.offset_from(base) - 1 } as usize;
                 func.chunk.disassemble_instruction(instruction);
             }
