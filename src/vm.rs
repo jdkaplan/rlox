@@ -1,4 +1,3 @@
-use std::mem::MaybeUninit;
 use std::ptr;
 use std::time::Duration;
 
@@ -55,9 +54,7 @@ pub struct CallFrame {
 pub struct Vm {
     pub(crate) frames: Vec<CallFrame>,
 
-    // TODO: This is a Vec
-    pub(crate) stack: [Value; STACK_MAX],
-    pub(crate) stack_top: *mut Value,
+    pub(crate) stack: Vec<Value>,
 
     pub(crate) globals: Table,
 
@@ -83,49 +80,34 @@ impl Default for Vm {
 // Alloc
 impl Vm {
     pub fn new() -> Self {
-        let mut vm = MaybeUninit::uninit();
-        unsafe {
-            let ptr: *mut Self = vm.as_mut_ptr();
-            Self::init(ptr.as_mut().unwrap());
-            vm.assume_init()
-        }
-    }
+        let mut vm = Self {
+            stack: Vec::with_capacity(STACK_MAX),
+            frames: Vec::with_capacity(FRAMES_MAX),
+            open_upvalues: ptr::null_mut(),
 
-    fn zero(&mut self) {
-        self.reset_stack();
+            bytes_allocated: 0,
+            next_gc: 0,
 
-        self.bytes_allocated = 0;
-        self.next_gc = 0;
+            gc_pending: Vec::new(),
 
-        self.gc_pending = Vec::new();
+            globals: Table::new(),
+            strings: Table::new(),
+            init_string: ptr::null_mut(),
 
-        self.globals = Table::new();
-        self.strings = Table::new();
-        self.init_string = ptr::null_mut();
+            objects: ptr::null_mut(),
+        };
 
-        self.open_upvalues = ptr::null_mut();
-        self.objects = ptr::null_mut();
-    }
-
-    pub(crate) fn reset_stack(&mut self) {
-        self.stack_top = ptr::addr_of_mut!(self.stack[0]);
-        self.frames = Vec::with_capacity(FRAMES_MAX);
-        self.open_upvalues = ptr::null_mut();
-    }
-
-    pub(crate) fn init(&mut self) {
-        self.zero();
-
-        self.next_gc = 1024 * 1024;
+        vm.next_gc = 1024 * 1024;
 
         let gc = Gc {
-            vm: self,
+            vm: &mut vm,
             compiler: ptr::null_mut(),
         };
 
-        self.init_string = ObjString::from_str(gc, "init");
+        vm.init_string = ObjString::from_str(gc, "init");
+        vm.define_native("clock", clock_native);
 
-        self.define_native("clock", clock_native);
+        vm
     }
 
     pub(crate) fn free(&mut self) {
@@ -145,6 +127,12 @@ impl Vm {
         gc.vm = ptr::null_mut();
         gc.free_objects(self.objects);
         std::mem::take(&mut self.gc_pending);
+    }
+
+    fn reset_stack(&mut self) {
+        self.stack = Vec::with_capacity(STACK_MAX);
+        self.frames = Vec::with_capacity(FRAMES_MAX);
+        self.open_upvalues = ptr::null_mut();
     }
 }
 
@@ -181,22 +169,37 @@ impl Vm {
 // Stack management
 impl Vm {
     pub(crate) fn push(&mut self, value: Value) {
-        unsafe {
-            *self.stack_top = value;
-            self.stack_top = self.stack_top.add(1);
-        }
+        self.stack.push(value)
     }
 
     pub(crate) fn pop(&mut self) -> Value {
-        unsafe {
-            self.stack_top = self.stack_top.sub(1);
-            *self.stack_top
-        }
+        self.stack.pop().expect("non-empty stack")
+    }
+
+    pub(crate) fn popn(&mut self, n: usize) {
+        let last = self.stack.len();
+        self.stack.truncate(last - n);
     }
 
     pub(crate) fn peek(&mut self, offset: usize) -> Value {
-        // Offset by one extra because stack_top points to the first _unused_ slot.
-        unsafe { *self.stack_top.sub(offset + 1) }
+        let last = self.stack.len() - 1;
+        self.stack[last - offset]
+    }
+
+    pub(crate) fn set(&mut self, offset: usize, value: Value) {
+        let last = self.stack.len();
+        self.stack[last - offset] = value;
+    }
+
+    pub(crate) fn sp(&mut self, offset: usize) -> *mut Value {
+        let base = self.stack.as_mut_ptr();
+        unsafe { base.add(self.stack.len() - offset) }
+    }
+
+    pub(crate) fn set_sp(&mut self, sp: *mut Value) {
+        let top = self.sp(0);
+        let n = unsafe { top.offset_from(sp) as usize };
+        self.popn(n);
     }
 }
 
@@ -217,7 +220,7 @@ impl Vm {
             ObjType::BoundMethod => {
                 let callee = callee as *mut ObjBoundMethod;
                 let bound = unsafe { callee.as_ref().unwrap() };
-                unsafe { *self.stack_top.sub(argc + 1) = bound.receiver };
+                self.set(argc + 1, bound.receiver);
                 self.call(bound.method, argc)
             }
             ObjType::Class => {
@@ -225,7 +228,7 @@ impl Vm {
 
                 // Replace the class that was called with an empty instance of that class.
                 let instance = Value::obj(ObjInstance::new(gc, callee) as *mut Obj);
-                unsafe { *self.stack_top.sub(argc + 1) = instance };
+                self.set(argc + 1, instance);
 
                 // Init!
                 let klass = unsafe { callee.as_ref().unwrap() };
@@ -247,11 +250,11 @@ impl Vm {
             ObjType::Native => {
                 let callee = callee as *mut ObjNative;
                 let func = unsafe { callee.as_ref().unwrap() }.r#fn;
-                let argv = unsafe { self.stack_top.sub(argc) };
+                let argv = self.sp(argc);
                 let res = func(argc, argv);
 
-                // Pop the whole call at once an then push on the result.
-                self.stack_top = unsafe { self.stack_top.sub(argc + 1) };
+                // Pop the whole call at once and then push the result.
+                self.popn(argc + 1);
                 self.push(res);
                 Ok(())
             }
@@ -289,7 +292,7 @@ impl Vm {
         if let Some(value) = instance.fields.get(name) {
             // Turns out this was `obj.field(...)`, so replace the receiver with the
             // field value and then call it.
-            unsafe { *self.stack_top.sub(argc + 1) = value };
+            self.set(argc + 1, value);
             return self.call_value(value, argc);
         }
 
@@ -309,12 +312,13 @@ impl Vm {
             return Err(self.runtime_error("Stack overflow."));
         }
 
-        self.frames.push(CallFrame {
+        let frame = CallFrame {
             closure,
             ip: 0,
             // Subtract an extra slot for stack slot zero (which contains the caller).
-            slots: unsafe { self.stack_top.sub(argc + 1) },
-        });
+            slots: self.sp(argc + 1),
+        };
+        self.frames.push(frame);
 
         Ok(())
     }
@@ -531,10 +535,8 @@ impl Vm {
         loop {
             #[cfg(feature = "trace_execution")]
             {
-                let mut slot = ptr::addr_of_mut!(self.stack[0]);
-                while slot < self.stack_top {
-                    print!("[ {} ]", unsafe { *slot });
-                    slot = unsafe { slot.add(1) };
+                for value in &self.stack {
+                    print!("[ {} ]", value);
                 }
                 println!();
             }
@@ -794,7 +796,8 @@ impl Vm {
                     }
                 }
                 Opcode::CloseUpvalue => {
-                    self.close_upvalues(unsafe { self.stack_top.sub(1) });
+                    let last = self.sp(1);
+                    self.close_upvalues(last);
                     self.pop();
                 }
                 Opcode::Return => {
@@ -807,7 +810,7 @@ impl Vm {
                         return Ok(());
                     }
 
-                    self.stack_top = unsafe { &*frame }.slots;
+                    self.set_sp(unsafe { (*frame).slots });
                     self.push(res);
                     frame = last_frame!();
                 }

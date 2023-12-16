@@ -153,10 +153,8 @@ impl Gc<'_> {
         let vm = unsafe { self.vm.as_mut().unwrap() };
 
         debug_log_gc!("---- mark slots");
-        let mut slot = ptr::addr_of_mut!(vm.stack[0]);
-        while slot < vm.stack_top {
-            self.mark_value(unsafe { *slot });
-            slot = unsafe { slot.add(1) };
+        for value in &vm.stack {
+            self.mark_value(*value);
         }
 
         debug_log_gc!("---- mark frames");
