@@ -53,9 +53,7 @@ pub struct CallFrame {
 
 #[repr(C)]
 pub struct Vm {
-    // TODO: This is a Vec
-    pub(crate) frames: [CallFrame; FRAMES_MAX],
-    pub(crate) frame_count: usize,
+    pub(crate) frames: Vec<CallFrame>,
 
     // TODO: This is a Vec
     pub(crate) stack: [Value; STACK_MAX],
@@ -99,7 +97,6 @@ impl Vm {
         self.bytes_allocated = 0;
         self.next_gc = 0;
 
-        // TODO: This is a Vec
         self.gc_pending = Vec::new();
 
         self.globals = Table::new();
@@ -112,7 +109,7 @@ impl Vm {
 
     pub(crate) fn reset_stack(&mut self) {
         self.stack_top = ptr::addr_of_mut!(self.stack[0]);
-        self.frame_count = 0;
+        self.frames = Vec::with_capacity(FRAMES_MAX);
         self.open_upvalues = ptr::null_mut();
     }
 
@@ -169,8 +166,7 @@ impl Vm {
     }
 
     pub(crate) fn eprint_stack_trace(&mut self) {
-        for i in (0..self.frame_count).rev() {
-            let frame = &self.frames[i];
+        for frame in self.frames.iter().rev() {
             let closure = unsafe { frame.closure.as_ref().unwrap() };
             let func = unsafe { closure.function.as_ref().unwrap() };
 
@@ -309,17 +305,17 @@ impl Vm {
             )));
         }
 
-        if self.frame_count == FRAMES_MAX {
+        if self.frames.len() == FRAMES_MAX {
             return Err(self.runtime_error("Stack overflow."));
         }
 
-        let frame = &mut self.frames[self.frame_count];
-        self.frame_count += 1;
+        self.frames.push(CallFrame {
+            closure,
+            ip: 0,
+            // Subtract an extra slot for stack slot zero (which contains the caller).
+            slots: unsafe { self.stack_top.sub(argc + 1) },
+        });
 
-        frame.closure = closure;
-        frame.ip = 0;
-        // Subtract an extra slot for stack slot zero (which contains the caller).
-        frame.slots = unsafe { self.stack_top.sub(argc + 1) };
         Ok(())
     }
 
@@ -462,13 +458,13 @@ impl Vm {
             compiler: ptr::null_mut(),
         };
 
-        macro_rules! frame_at {
-            ($idx:expr) => {{
-                unsafe { ::std::ptr::addr_of_mut!(self.frames[0]).add($idx) }
+        macro_rules! last_frame {
+            () => {{
+                self.frames.last_mut().unwrap()
             }};
         }
 
-        let mut frame: *mut CallFrame = frame_at![self.frame_count - 1];
+        let mut frame: *mut CallFrame = last_frame!();
 
         macro_rules! read_byte {
             () => {{
@@ -759,20 +755,20 @@ impl Vm {
                     let argc = read_byte!() as usize;
                     let callee = self.peek(argc);
                     self.call_value(callee, argc)?;
-                    frame = frame_at![self.frame_count - 1];
+                    frame = last_frame!();
                 }
                 Opcode::Invoke => {
                     let method = read_string!();
                     let argc = read_byte!() as usize;
                     self.invoke(method, argc)?;
-                    frame = frame_at![self.frame_count - 1];
+                    frame = last_frame!();
                 }
                 Opcode::SuperInvoke => {
                     let method = read_string!();
                     let argc = read_byte!() as usize;
                     let superclass = unsafe { self.pop().as_obj::<ObjClass>() };
                     self.invoke_from_class(superclass, method, argc)?;
-                    frame = frame_at![self.frame_count - 1];
+                    frame = last_frame!();
                 }
                 Opcode::Closure => {
                     let func = unsafe { read_constant!().as_obj::<ObjFunction>() };
@@ -805,15 +801,15 @@ impl Vm {
                     let res = self.pop();
                     self.close_upvalues(unsafe { &*frame }.slots);
 
-                    self.frame_count -= 1;
-                    if self.frame_count == 0 {
+                    self.frames.pop();
+                    if self.frames.is_empty() {
                         self.pop();
                         return Ok(());
                     }
 
                     self.stack_top = unsafe { &*frame }.slots;
                     self.push(res);
-                    frame = &mut self.frames[self.frame_count - 1];
+                    frame = last_frame!();
                 }
 
                 Opcode::Class => {

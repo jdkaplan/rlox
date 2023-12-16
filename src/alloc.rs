@@ -160,8 +160,8 @@ impl Gc<'_> {
         }
 
         debug_log_gc!("---- mark frames");
-        for i in 0..vm.frame_count {
-            let obj = vm.frames.get_mut(i).unwrap().closure as *mut Obj;
+        for frame in &mut vm.frames {
+            let obj = frame.closure as *mut Obj;
             self.mark_obj(obj);
         }
 
