@@ -134,7 +134,7 @@ impl Chunk {
     fn constant_instruction(&self, op: Opcode, offset: usize) -> usize {
         let constant = self.code[offset + 1];
         let val = self.constants[constant as usize];
-        print!("{: <16?} {:04} '{}'", op, constant, val);
+        println!("{: <16?} {:04} '{}'", op, constant, val);
         offset + 2
     }
 

@@ -47,7 +47,7 @@ fn clock() -> Duration {
 #[repr(C)]
 pub struct CallFrame {
     pub(crate) closure: *mut ObjClosure,
-    ip: *mut u8,
+    ip: usize,
     slots: *mut Value,
 }
 
@@ -176,9 +176,7 @@ impl Vm {
 
             // The ip has already moved past the instruction that failed, so subtract
             // one extra.
-            let base = ptr::addr_of!(func.chunk.code[0]);
-            let instruction = unsafe { frame.ip.offset_from(base) - 1 } as usize;
-            let line = func.chunk.lines[instruction];
+            let line = func.chunk.lines[frame.ip - 1];
             eprintln!("[line {}] in {}", line, func.name());
         }
     }
@@ -319,7 +317,7 @@ impl Vm {
         self.frame_count += 1;
 
         frame.closure = closure;
-        frame.ip = ptr::addr_of_mut!(func.chunk.code[0]);
+        frame.ip = 0;
         // Subtract an extra slot for stack slot zero (which contains the caller).
         frame.slots = unsafe { self.stack_top.sub(argc + 1) };
         Ok(())
@@ -474,8 +472,9 @@ impl Vm {
 
         macro_rules! read_byte {
             () => {{
-                let b = unsafe { *(*frame).ip };
-                unsafe { (*frame).ip = (*frame).ip.add(1) };
+                let ip = unsafe { &*frame }.ip;
+                let b = unsafe { &*(*(*frame).closure).function }.chunk.code[ip];
+                unsafe { (*frame).ip += 1 };
                 b
             }};
         }
@@ -557,9 +556,7 @@ impl Vm {
 
                 // The ip has already moved past the instruction that failed, so subtract
                 // one extra.
-                let base = ptr::addr_of!(func.chunk.code[0]);
-                let instruction = unsafe { frame.ip.offset_from(base) - 1 } as usize;
-                func.chunk.disassemble_instruction(instruction);
+                func.chunk.disassemble_instruction(frame.ip - 1);
             }
 
             match opcode {
@@ -745,17 +742,17 @@ impl Vm {
 
                 Opcode::Jump => {
                     let offset = read_short!();
-                    unsafe { (*frame).ip = (*frame).ip.add(offset as usize) };
+                    unsafe { (*frame).ip += offset as usize };
                 }
                 Opcode::JumpIfFalse => {
                     let offset = read_short!();
                     if self.peek(0).is_falsey() {
-                        unsafe { (*frame).ip = (*frame).ip.add(offset as usize) };
+                        unsafe { (*frame).ip += offset as usize };
                     }
                 }
                 Opcode::Loop => {
                     let offset = read_short!();
-                    unsafe { (*frame).ip = (*frame).ip.sub(offset as usize) };
+                    unsafe { (*frame).ip -= offset as usize };
                 }
 
                 Opcode::Call => {
