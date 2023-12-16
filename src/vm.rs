@@ -5,18 +5,29 @@ use std::time::Duration;
 
 use crate::alloc::Gc;
 use crate::chunk::Opcode;
+use crate::compiler::{compile, CompileError};
 use crate::object::{NativeFn, Obj, ObjClosure, ObjNative, ObjString, ObjType, ObjUpvalue, *};
 use crate::table::Table;
 use crate::value::{Value, ValueType};
 use crate::{FRAMES_MAX, STACK_MAX};
 
-#[derive(PartialEq, Eq)]
-#[repr(C)]
-pub enum InterpretResult {
-    InterpretOk,
-    InterpretCompileError,
-    InterpretRuntimeError,
+pub type InterpretResult<T> = Result<T, InterpretError>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum InterpretError {
+    #[error(transparent)]
+    Compile(#[from] CompileError),
+
+    #[error(transparent)]
+    Runtime(#[from] RuntimeError),
 }
+
+pub type RuntimeResult<T> = Result<T, RuntimeError>;
+
+// TODO: Include error data
+#[derive(thiserror::Error, Debug)]
+#[error("runtime error")]
+pub struct RuntimeError;
 
 pub fn clock_native(_argc: usize, _argv: *const Value) -> Value {
     Value::number(clock().as_secs_f64())
@@ -46,9 +57,6 @@ pub fn concatenate(mut gc: Gc, a: *const ObjString, b: *const ObjString) -> *mut
 
     ObjString::from_ptr(gc, chars, length)
 }
-
-#[repr(C)]
-pub struct RuntimeError;
 
 #[repr(C)]
 pub struct CallFrame {
@@ -165,10 +173,13 @@ impl Drop for Vm {
 
 // Errors
 impl Vm {
-    pub(crate) fn runtime_error(&mut self, msg: impl AsRef<str>) {
+    #[must_use]
+    pub(crate) fn runtime_error(&mut self, msg: impl AsRef<str>) -> RuntimeError {
+        // TODO: Print error message after stack trace.
         eprintln!("{}", msg.as_ref());
         self.eprint_stack_trace();
         self.reset_stack();
+        RuntimeError
     }
 
     pub(crate) fn eprint_stack_trace(&mut self) {
@@ -211,15 +222,14 @@ impl Vm {
 
 // Calls
 impl Vm {
-    pub(crate) fn call_value(&mut self, callee: Value, argc: usize) -> bool {
+    pub(crate) fn call_value(&mut self, callee: Value, argc: usize) -> RuntimeResult<()> {
         let gc = Gc {
             vm: self,
             compiler: ptr::null_mut(),
         };
 
         if callee.r#type != ValueType::Obj {
-            self.runtime_error("Can only call functions and classes.");
-            return false;
+            return Err(self.runtime_error("Can only call functions and classes."));
         }
 
         let callee = unsafe { callee.r#as.obj };
@@ -244,10 +254,11 @@ impl Vm {
                     let init = unsafe { init.as_obj::<ObjClosure>() };
                     return self.call(init, argc);
                 } else if argc != 0 {
-                    self.runtime_error(format!("Expected 0 arguments but got {}.", argc));
-                    return false;
+                    return Err(
+                        self.runtime_error(format!("Expected 0 arguments but got {}.", argc))
+                    );
                 }
-                true
+                Ok(())
             }
             ObjType::Closure => {
                 let callee = callee as *mut ObjClosure;
@@ -262,12 +273,9 @@ impl Vm {
                 // Pop the whole call at once an then push on the result.
                 self.stack_top = unsafe { self.stack_top.sub(argc + 1) };
                 self.push(res);
-                true
+                Ok(())
             }
-            _ => {
-                self.runtime_error("Can only call functions and classes.");
-                false
-            }
+            _ => Err(self.runtime_error("Can only call functions and classes.")),
         }
     }
 
@@ -276,13 +284,14 @@ impl Vm {
         klass: *const ObjClass,
         name: *const ObjString,
         argc: usize,
-    ) -> bool {
+    ) -> RuntimeResult<()> {
         let klass = unsafe { klass.as_ref().unwrap() };
         let Some(method) = klass.methods.get(name) else {
-            self.runtime_error(format!("Undefined property '{}'.", unsafe {
-                name.as_ref().unwrap()
-            }));
-            return false;
+            return Err(
+                self.runtime_error(format!("Undefined property '{}'.", unsafe {
+                    name.as_ref().unwrap()
+                })),
+            );
         };
 
         assert!(method.is_obj_type(ObjType::Closure));
@@ -290,11 +299,10 @@ impl Vm {
         self.call(method, argc)
     }
 
-    pub(crate) fn invoke(&mut self, name: *const ObjString, argc: usize) -> bool {
+    pub(crate) fn invoke(&mut self, name: *const ObjString, argc: usize) -> RuntimeResult<()> {
         let receiver = self.peek(argc);
         if !receiver.is_obj_type(ObjType::Instance) {
-            self.runtime_error("Can't call method on non-instance.");
-            return false;
+            return Err(self.runtime_error("Can't call method on non-instance."));
         }
         let instance = unsafe { receiver.as_obj::<ObjInstance>().as_ref().unwrap() };
 
@@ -308,19 +316,17 @@ impl Vm {
         self.invoke_from_class(instance.klass, name, argc)
     }
 
-    pub(crate) fn call(&mut self, closure: *mut ObjClosure, argc: usize) -> bool {
+    pub(crate) fn call(&mut self, closure: *mut ObjClosure, argc: usize) -> RuntimeResult<()> {
         let func = unsafe { closure.as_ref().unwrap().function.as_ref().unwrap() };
         if argc != func.arity {
-            self.runtime_error(format!(
+            return Err(self.runtime_error(format!(
                 "Expected {} arguments but got {}.",
                 func.arity, argc
-            ));
-            return false;
+            )));
         }
 
         if self.frame_count == FRAMES_MAX {
-            self.runtime_error("Stack overflow.");
-            return false;
+            return Err(self.runtime_error("Stack overflow."));
         }
 
         let frame = &mut self.frames[self.frame_count];
@@ -330,7 +336,7 @@ impl Vm {
         frame.ip = func.chunk.code.base_ptr();
         // Subtract an extra slot for stack slot zero (which contains the caller).
         frame.slots = unsafe { self.stack_top.sub(argc + 1) };
-        true
+        Ok(())
     }
 
     pub(crate) fn define_method(&mut self, name: *mut ObjString) {
@@ -345,7 +351,11 @@ impl Vm {
         self.pop(); // method
     }
 
-    pub(crate) fn bind_method(&mut self, klass: *const ObjClass, name: *const ObjString) -> bool {
+    pub(crate) fn bind_method(
+        &mut self,
+        klass: *const ObjClass,
+        name: *const ObjString,
+    ) -> RuntimeResult<()> {
         let klass = unsafe { klass.as_ref().unwrap() };
 
         let gc = Gc {
@@ -354,10 +364,11 @@ impl Vm {
         };
 
         let Some(method) = klass.methods.get(name) else {
-            self.runtime_error(format!("Undefined property '{}'.", unsafe {
-                name.as_ref().unwrap()
-            }));
-            return false;
+            return Err(
+                self.runtime_error(format!("Undefined property '{}'.", unsafe {
+                    name.as_ref().unwrap()
+                })),
+            );
         };
 
         assert!(method.is_obj_type(ObjType::Closure));
@@ -365,7 +376,7 @@ impl Vm {
         let bound = ObjBoundMethod::new(gc, self.peek(0), unsafe { method.as_obj::<ObjClosure>() });
         self.pop(); // method
         self.push(Value::obj(bound as *mut Obj));
-        true
+        Ok(())
     }
 
     pub(crate) fn define_native(&mut self, name: &'static str, func: NativeFn) {
@@ -441,13 +452,10 @@ impl Vm {
 
 // Execution
 impl Vm {
-    pub fn interpret(&mut self, source: &str) -> InterpretResult {
+    pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {
         let gc = Gc::new(ptr::null_mut(), self);
 
-        let function = crate::compiler::compile(self, source);
-        if function.is_null() {
-            return InterpretResult::InterpretCompileError;
-        }
+        let function = compile(self, source)?;
 
         // GC: Temporarily make the function reachable.
         let closure = {
@@ -458,12 +466,9 @@ impl Vm {
         };
 
         self.push(Value::obj(closure as *mut Obj));
-        self.call(closure, 0);
+        self.call(closure, 0)?;
 
-        match self.run() {
-            Ok(_) => InterpretResult::InterpretOk,
-            Err(_) => InterpretResult::InterpretRuntimeError,
-        }
+        Ok(self.run()?)
     }
 
     #[allow(unused_unsafe)]
@@ -524,8 +529,7 @@ impl Vm {
                     self.push(Value::bool(v));
                     Ok(())
                 } else {
-                    self.runtime_error("Operands must be numbers.");
-                    Err(RuntimeError)
+                    Err(self.runtime_error("Operands must be numbers."))
                 }
             }};
         }
@@ -539,8 +543,7 @@ impl Vm {
                     self.push(Value::number(v));
                     Ok(())
                 } else {
-                    self.runtime_error("Operands must be numbers.");
-                    Err(RuntimeError)
+                    Err(self.runtime_error("Operands must be numbers."))
                 }
             }};
         }
@@ -616,8 +619,10 @@ impl Vm {
                 Opcode::GetGlobal => {
                     let name = read_string!();
                     let Some(value) = self.globals.get(name) else {
-                        self.runtime_error(format!("Undefined variable '{}'.", unsafe { &*name }));
-                        return Err(RuntimeError);
+                        return Err(self
+                            .runtime_error(format!("Undefined variable '{}'.", unsafe {
+                                &*name
+                            })));
                     };
 
                     self.push(value);
@@ -631,8 +636,10 @@ impl Vm {
                         // If this was a new key, that means the global wasn't actually defined
                         // yet! Delete it back out and throw the runtime error.
                         self.globals.delete(name);
-                        self.runtime_error(format!("Undefined variable '{}'.", unsafe { &*name }));
-                        return Err(RuntimeError);
+                        return Err(self
+                            .runtime_error(format!("Undefined variable '{}'.", unsafe {
+                                &*name
+                            })));
                     }
                 }
 
@@ -653,8 +660,7 @@ impl Vm {
 
                 Opcode::GetProperty => {
                     if !self.peek(0).is_obj_type(ObjType::Instance) {
-                        self.runtime_error("Only instances have properties.");
-                        return Err(RuntimeError);
+                        return Err(self.runtime_error("Only instances have properties."));
                     }
 
                     let instance = unsafe { self.peek(0).as_obj::<ObjInstance>() };
@@ -669,14 +675,11 @@ impl Vm {
 
                     // Method
                     let klass = unsafe { &*instance }.klass;
-                    if !self.bind_method(klass, name) {
-                        return Err(RuntimeError);
-                    };
+                    self.bind_method(klass, name)?;
                 }
                 Opcode::SetProperty => {
                     if !self.peek(1).is_obj_type(ObjType::Instance) {
-                        self.runtime_error("Only instances have fields.");
-                        return Err(RuntimeError);
+                        return Err(self.runtime_error("Only instances have fields."));
                     }
 
                     let instance = unsafe { self.peek(1).as_obj::<ObjInstance>() };
@@ -692,10 +695,7 @@ impl Vm {
                 Opcode::GetSuper => {
                     let name = read_string!();
                     let superclass = unsafe { self.pop().as_obj::<ObjClass>() };
-
-                    if !self.bind_method(superclass, name) {
-                        return Err(RuntimeError);
-                    }
+                    self.bind_method(superclass, name)?;
                 }
 
                 Opcode::Equal => {
@@ -713,8 +713,7 @@ impl Vm {
 
                 Opcode::Neg => {
                     if !self.peek(0).is_number() {
-                        self.runtime_error("Operand must be a number.");
-                        return Err(RuntimeError);
+                        return Err(self.runtime_error("Operand must be a number."));
                     }
                     let a = unsafe { self.pop().as_number() };
                     self.push(Value::number(-a));
@@ -739,8 +738,9 @@ impl Vm {
                         let a = unsafe { self.pop().as_number() };
                         self.push(Value::number(a + b));
                     } else {
-                        self.runtime_error("Operands must be two numbers or two strings.");
-                        return Err(RuntimeError);
+                        return Err(
+                            self.runtime_error("Operands must be two numbers or two strings.")
+                        );
                     }
                 }
                 Opcode::Sub => {
@@ -776,26 +776,20 @@ impl Vm {
                 Opcode::Call => {
                     let argc = read_byte!() as usize;
                     let callee = self.peek(argc);
-                    if !self.call_value(callee, argc) {
-                        return Err(RuntimeError);
-                    };
+                    self.call_value(callee, argc)?;
                     frame = frame_at![self.frame_count - 1];
                 }
                 Opcode::Invoke => {
                     let method = read_string!();
                     let argc = read_byte!() as usize;
-                    if !self.invoke(method, argc) {
-                        return Err(RuntimeError);
-                    };
+                    self.invoke(method, argc)?;
                     frame = frame_at![self.frame_count - 1];
                 }
                 Opcode::SuperInvoke => {
                     let method = read_string!();
                     let argc = read_byte!() as usize;
                     let superclass = unsafe { self.pop().as_obj::<ObjClass>() };
-                    if !self.invoke_from_class(superclass, method, argc) {
-                        return Err(RuntimeError);
-                    }
+                    self.invoke_from_class(superclass, method, argc)?;
                     frame = frame_at![self.frame_count - 1];
                 }
                 Opcode::Closure => {
@@ -848,8 +842,7 @@ impl Vm {
                 Opcode::Inherit => {
                     let superclass = self.peek(1);
                     if !superclass.is_obj_type(ObjType::Class) {
-                        self.runtime_error("Superclass must be a class.");
-                        return Err(RuntimeError);
+                        return Err(self.runtime_error("Superclass must be a class."));
                     }
 
                     // Classes are closed after definition, so the set of methods on a class

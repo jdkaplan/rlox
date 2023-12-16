@@ -8,7 +8,7 @@ mod value;
 mod vec;
 mod vm;
 
-pub use vm::{InterpretResult, Vm};
+pub use vm::{InterpretError, InterpretResult, Vm};
 
 pub const U8_COUNT: usize = (u8::MAX as usize) + 1;
 pub const FRAMES_MAX: usize = 64;

@@ -11,6 +11,13 @@ use crate::value::Value;
 use crate::vm::Vm;
 use crate::U8_COUNT;
 
+pub type CompileResult<T> = Result<T, CompileError>;
+
+// TODO: Include error data
+#[derive(thiserror::Error, Debug)]
+#[error("compile error")]
+pub struct CompileError;
+
 #[repr(C)]
 pub struct Parser<'source> {
     current: Token<'source>,
@@ -93,7 +100,7 @@ pub struct Upvalue {
     is_local: bool,
 }
 
-pub(crate) fn compile(vm: *mut Vm, source: &str) -> *mut ObjFunction {
+pub(crate) fn compile(vm: *mut Vm, source: &str) -> CompileResult<*mut ObjFunction> {
     let mut scanner = Scanner::new(source);
     let mut parser = Parser::new(&mut scanner, vm);
 
@@ -105,9 +112,9 @@ pub(crate) fn compile(vm: *mut Vm, source: &str) -> *mut ObjFunction {
 
     let fun = parser.end_compiler();
     if parser.had_error {
-        ptr::null_mut()
+        Err(CompileError)
     } else {
-        fun
+        Ok(fun)
     }
 }
 

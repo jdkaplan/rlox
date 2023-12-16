@@ -3,7 +3,7 @@ use std::io;
 use std::io::Write;
 use std::process;
 
-use rlox::{InterpretResult, Vm};
+use rlox::{InterpretError, Vm};
 
 fn main() {
     // TODO: clap
@@ -52,8 +52,8 @@ fn run_file(path: &str) {
     };
 
     match vm.interpret(&source) {
-        InterpretResult::InterpretOk => {}
-        InterpretResult::InterpretCompileError => process::exit(65),
-        InterpretResult::InterpretRuntimeError => process::exit(70),
+        Ok(()) => {}
+        Err(InterpretError::Compile(_)) => process::exit(65),
+        Err(InterpretError::Runtime(_)) => process::exit(70),
     };
 }
