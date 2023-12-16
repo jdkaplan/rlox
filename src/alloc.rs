@@ -92,6 +92,11 @@ impl Gc<'_> {
     pub(crate) fn free<T>(&mut self, ptr: *mut T) {
         self.reallocate(ptr, mem::size_of::<T>(), 0);
     }
+
+    pub(crate) unsafe fn claim(&mut self, ptr: *mut Obj) {
+        (*ptr).next = (*self.vm).objects;
+        (*self.vm).objects = ptr;
+    }
 }
 
 fn counter() -> &'static Mutex<u8> {

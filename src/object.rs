@@ -97,10 +97,7 @@ macro_rules! allocate_obj {
             (*obj).obj.is_marked = false;
         }
 
-        unsafe {
-            (*obj).obj.next = (*$gc.vm).objects;
-            (*$gc.vm).objects = obj as *mut Obj;
-        }
+        unsafe { $gc.claim(obj as *mut Obj) };
         obj
     }};
 }
