@@ -251,8 +251,8 @@ impl Gc<'_> {
                 debug_log_gc!("expand as: {}", closure);
 
                 self.mark_obj(closure.function as *mut Obj);
-                for i in 0..closure.upvalue_count {
-                    self.mark_obj(unsafe { closure.upvalues.add(i) as *mut Obj });
+                for upvalue in &closure.upvalues {
+                    self.mark_obj((*upvalue) as *mut Obj);
                 }
             }
             ObjType::Function => {

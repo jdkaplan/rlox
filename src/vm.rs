@@ -625,17 +625,15 @@ impl Vm {
 
                 Opcode::GetUpvalue => {
                     let slot = read_byte!();
-                    let value = unsafe {
-                        *(*(*(*(*frame).closure).upvalues.offset(slot as isize))).location
-                    };
+                    let upvalue = unsafe { &*(*(*frame).closure).upvalues[slot as usize] };
+                    let value = unsafe { *upvalue.location };
                     self.push(value);
                 }
                 Opcode::SetUpvalue => {
                     let slot = read_byte!();
                     let value = self.peek(0);
-                    unsafe {
-                        *(*(*(*(*frame).closure).upvalues.offset(slot as isize))).location = value
-                    };
+                    let upvalue = unsafe { &mut *(*(*frame).closure).upvalues[slot as usize] };
+                    unsafe { *upvalue.location = value };
                 }
 
                 Opcode::GetProperty => {
@@ -777,20 +775,20 @@ impl Vm {
                     let closure = ObjClosure::new(gc, unsafe { func.as_mut().unwrap() });
                     self.push(Value::obj(closure as *mut Obj));
 
-                    let count = unsafe { &*closure }.upvalue_count as usize;
+                    let count = unsafe { &*closure }.upvalues.len();
                     for i in 0..count {
                         let is_local = read_byte!();
                         let index = read_byte!();
 
                         if is_local != 0 {
                             unsafe {
-                                *(*closure).upvalues.add(i) =
+                                (*closure).upvalues[i] =
                                     self.capture_upvalue((*frame).slots.add(index as usize))
                             };
                         } else {
                             unsafe {
-                                *(*closure).upvalues.add(i) =
-                                    *(*(*frame).closure).upvalues.add(index as usize)
+                                (*closure).upvalues[i] =
+                                    (*(*frame).closure).upvalues[index as usize]
                             };
                         }
                     }

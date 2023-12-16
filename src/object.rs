@@ -164,26 +164,19 @@ pub struct ObjClosure {
     pub(crate) obj: Obj,
 
     pub(crate) function: *mut ObjFunction,
-
-    // TODO: This is a Vec
-    pub(crate) upvalues: *mut *mut ObjUpvalue,
-    pub(crate) upvalue_count: usize,
+    pub(crate) upvalues: Vec<*mut ObjUpvalue>,
 }
 
 impl ObjClosure {
     pub(crate) fn new(mut gc: Gc, function: *mut ObjFunction) -> *mut ObjClosure {
-        // TODO: This is a Vec
         let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
-        let upvalues: *mut *mut ObjUpvalue = gc.resize_array(ptr::null_mut(), 0, upvalue_count);
-        for i in 0..upvalue_count {
-            unsafe { (*upvalues.add(i)) = ptr::null_mut() };
-        }
+        let upvalues = vec![ptr::null_mut(); upvalue_count];
 
         let closure = allocate_obj!(gc, ObjClosure, ObjType::Closure);
         unsafe {
             (*closure).function = function;
+            forget_uninit!(&mut (*closure).upvalues);
             (*closure).upvalues = upvalues;
-            (*closure).upvalue_count = upvalue_count;
         }
         closure
     }
