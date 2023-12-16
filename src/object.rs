@@ -48,7 +48,7 @@ impl Obj {
             ObjType::BoundMethod => gc.free(obj as *mut ObjBoundMethod),
             ObjType::Class => {
                 let klass = obj as *mut ObjClass;
-                unsafe { klass.as_mut().unwrap() }.methods.free(gc);
+                std::mem::take(&mut unsafe { &mut *klass }.methods);
                 gc.free(klass)
             }
             ObjType::Closure => gc.free(obj as *mut ObjClosure),
@@ -59,7 +59,7 @@ impl Obj {
             }
             ObjType::Instance => {
                 let instance = obj as *mut ObjInstance;
-                unsafe { instance.as_mut().unwrap() }.fields.free(gc);
+                std::mem::take(&mut unsafe { &mut *instance }.fields);
                 gc.free(instance)
             }
             ObjType::Native => gc.free(obj as *mut ObjNative),
@@ -134,12 +134,20 @@ pub struct ObjClass {
     pub(crate) methods: Table,
 }
 
+// TODO: ManuallyDrop instead?
+macro_rules! forget_uninit {
+    ($x:expr) => {{
+        let old = ::std::mem::take($x);
+        std::mem::forget(old);
+    }};
+}
+
 impl ObjClass {
     pub(crate) fn new(mut gc: Gc, name: *mut ObjString) -> *mut ObjClass {
         let klass = allocate_obj!(gc, ObjClass, ObjType::Class);
         unsafe {
             (*klass).name = name;
-            (*klass).methods.init();
+            forget_uninit!(&mut (*klass).methods);
         }
         klass
     }
@@ -241,7 +249,7 @@ impl ObjInstance {
         let instance = allocate_obj!(gc, ObjInstance, ObjType::Instance);
         unsafe {
             (*instance).klass = klass;
-            (*instance).fields.init();
+            forget_uninit!(&mut (*instance).fields);
         }
         instance
     }

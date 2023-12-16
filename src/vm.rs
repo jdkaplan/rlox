@@ -102,8 +102,8 @@ impl Vm {
         // TODO: This is a Vec
         self.gc_pending = Vec::new();
 
-        self.globals.init();
-        self.strings.init();
+        self.globals = Table::new();
+        self.strings = Table::new();
         self.init_string = ptr::null_mut();
 
         self.open_upvalues = ptr::null_mut();
@@ -137,8 +137,8 @@ impl Vm {
             compiler: ptr::null_mut(),
         };
 
-        self.globals.free(&mut gc);
-        self.strings.free(&mut gc);
+        std::mem::take(&mut self.globals);
+        std::mem::take(&mut self.strings);
 
         self.init_string = ptr::null_mut();
 

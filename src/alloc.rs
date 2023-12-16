@@ -214,8 +214,7 @@ impl Gc<'_> {
     }
 
     fn mark_table(&mut self, table: &mut Table) {
-        for i in 0..(table.cap as usize) {
-            let entry = unsafe { table.entries.add(i).as_mut().unwrap() };
+        for entry in &mut table.entries {
             self.mark_obj(entry.key as *mut Obj);
             self.mark_value(entry.value);
         }

@@ -9,6 +9,12 @@ pub struct Value {
     pub(crate) r#as: ValueAs,
 }
 
+impl Default for Value {
+    fn default() -> Self {
+        Self::nil()
+    }
+}
+
 impl Value {
     pub(crate) fn bool(boolean: bool) -> Self {
         Self {
