@@ -6,7 +6,7 @@ use crate::chunk::Opcode;
 use crate::compiler::{compile, CompileError};
 use crate::object::{NativeFn, Obj, ObjClosure, ObjNative, ObjString, ObjType, ObjUpvalue, *};
 use crate::table::Table;
-use crate::value::{Value, ValueType};
+use crate::value::Value;
 use crate::{FRAMES_MAX, STACK_MAX};
 
 pub type InterpretResult<T> = Result<T, InterpretError>;
@@ -211,11 +211,10 @@ impl Vm {
             compiler: ptr::null_mut(),
         };
 
-        if callee.r#type != ValueType::Obj {
+        let Some(callee) = (unsafe { callee.try_obj::<Obj>() }) else {
             return Err(self.runtime_error("Can only call functions and classes."));
-        }
+        };
 
-        let callee = unsafe { callee.r#as.obj };
         match unsafe { callee.as_ref().unwrap() }.r#type {
             ObjType::BoundMethod => {
                 let callee = callee as *mut ObjBoundMethod;
@@ -378,7 +377,7 @@ impl Vm {
             self.push(Value::obj(ObjNative::new(gc, func) as *mut Obj));
             self.globals.set(
                 gc,
-                unsafe { self.stack[0].r#as.obj as *mut ObjString },
+                unsafe { self.stack[0].as_obj::<ObjString>() },
                 self.stack[1],
             );
             self.pop();

@@ -2,11 +2,20 @@ use std::fmt;
 
 use crate::object::{Obj, ObjType};
 
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct Value {
-    pub(crate) r#type: ValueType,
-    pub(crate) r#as: ValueAs,
+#[derive(Debug, Copy, Clone)]
+pub enum Value {
+    Bool(bool),
+    Nil,
+    Number(f64),
+    Obj(*mut Obj),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ValueType {
+    Bool,
+    Nil,
+    Number,
+    Obj,
 }
 
 impl Default for Value {
@@ -17,97 +26,101 @@ impl Default for Value {
 
 impl Value {
     pub(crate) fn bool(boolean: bool) -> Self {
-        Self {
-            r#type: ValueType::Bool,
-            r#as: ValueAs { boolean },
-        }
+        Value::Bool(boolean)
     }
 
     pub(crate) fn nil() -> Self {
-        Self {
-            r#type: ValueType::Nil,
-            r#as: ValueAs { number: 0.0 },
-        }
+        Value::Nil
     }
 
     pub(crate) fn number(number: f64) -> Self {
-        Self {
-            r#type: ValueType::Number,
-            r#as: ValueAs { number },
-        }
+        Value::Number(number)
     }
 
     pub(crate) fn obj(obj: *mut Obj) -> Self {
-        Self {
-            r#type: ValueType::Obj,
-            r#as: ValueAs { obj },
+        Value::Obj(obj)
+    }
+}
+
+#[allow(unused)]
+impl Value {
+    pub(crate) fn is(&self, ty: ValueType) -> bool {
+        match self {
+            Value::Bool(_) => ty == ValueType::Bool,
+            Value::Nil => ty == ValueType::Nil,
+            Value::Number(_) => ty == ValueType::Number,
+            Value::Obj(_) => ty == ValueType::Obj,
+        }
+    }
+
+    pub(crate) fn is_bool(&self) -> bool {
+        self.is(ValueType::Bool)
+    }
+
+    pub(crate) fn is_nil(&self) -> bool {
+        self.is(ValueType::Nil)
+    }
+
+    pub(crate) fn is_number(&self) -> bool {
+        self.is(ValueType::Number)
+    }
+
+    pub(crate) fn is_obj(&self) -> bool {
+        self.is(ValueType::Obj)
+    }
+
+    pub(crate) fn is_falsey(&self) -> bool {
+        !self.is_truthy()
+    }
+
+    pub(crate) fn is_truthy(&self) -> bool {
+        match self {
+            Value::Nil => false,
+            Value::Bool(b) => *b,
+            _ => true,
         }
     }
 }
 
+#[allow(unused)]
 impl Value {
-    pub(crate) fn is_bool(&self) -> bool {
-        self.r#type == ValueType::Bool
+    pub(crate) fn try_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
     }
 
-    pub(crate) fn is_nil(&self) -> bool {
-        self.r#type == ValueType::Nil
+    pub(crate) fn as_bool(&self) -> bool {
+        self.try_bool().unwrap()
     }
 
-    pub(crate) fn is_number(&self) -> bool {
-        self.r#type == ValueType::Number
+    pub(crate) fn try_number(&self) -> Option<f64> {
+        match self {
+            Value::Number(f) => Some(*f),
+            _ => None,
+        }
     }
 
-    pub(crate) fn is_obj(&self) -> bool {
-        self.r#type == ValueType::Obj
-    }
-
-    pub(crate) fn is_falsey(&self) -> bool {
-        self.is_nil() || (self.is_bool() && unsafe { !self.as_bool() })
-    }
-}
-
-impl Value {
-    pub(crate) unsafe fn as_bool(&self) -> bool {
-        self.r#as.boolean
-    }
-
-    pub(crate) unsafe fn as_number(&self) -> f64 {
-        self.r#as.number
+    pub(crate) fn as_number(&self) -> f64 {
+        self.try_number().unwrap()
     }
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.r#type {
-            ValueType::Bool => {
-                if unsafe { self.r#as.boolean } {
+        match self {
+            Value::Bool(b) => {
+                if *b {
                     write!(f, "true")
                 } else {
                     write!(f, "false")
                 }
             }
-            ValueType::Nil => write!(f, "nil"),
-            ValueType::Number => write!(f, "{}", unsafe { self.r#as.number }),
-            ValueType::Obj => write!(f, "{}", unsafe { self.r#as.obj.as_ref().unwrap() }),
+            Value::Nil => write!(f, "nil"),
+            Value::Number(num) => write!(f, "{}", num),
+            Value::Obj(obj) => write!(f, "{}", unsafe { obj.as_ref().unwrap() }),
         }
-    }
-}
-
-impl fmt::Debug for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Value")
-            .field("r#type", &self.r#type)
-            .field(
-                "r#as",
-                match self.r#type {
-                    ValueType::Bool => unsafe { &self.r#as.boolean },
-                    ValueType::Nil => &"nil",
-                    ValueType::Number => unsafe { &self.r#as.number },
-                    ValueType::Obj => unsafe { &self.r#as.obj },
-                },
-            )
-            .finish()
     }
 }
 
@@ -115,50 +128,39 @@ impl Eq for Value {}
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        match (self.r#type, other.r#type) {
-            (ValueType::Bool, ValueType::Bool) => unsafe {
-                self.r#as.boolean == other.r#as.boolean
-            },
-            (ValueType::Bool, _) => false,
+        match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Bool(_), _) => false,
 
-            (ValueType::Nil, ValueType::Nil) => true,
-            (ValueType::Nil, _) => false,
+            (Value::Nil, Value::Nil) => true,
+            (Value::Nil, _) => false,
 
-            (ValueType::Number, ValueType::Number) => unsafe {
-                self.r#as.number == other.r#as.number
-            },
-            (ValueType::Number, _) => false,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Number(_), _) => false,
 
             // The VM interns all strings, so pointer equality works for every object.
-            (ValueType::Obj, ValueType::Obj) => unsafe { self.r#as.obj == other.r#as.obj },
-            (ValueType::Obj, _) => false,
+            (Value::Obj(a), Value::Obj(b)) => a == b,
+            (Value::Obj(_), _) => false,
         }
     }
 }
 
 impl Value {
     pub(crate) fn is_obj_type(&self, ty: ObjType) -> bool {
-        self.r#type == ValueType::Obj && unsafe { self.r#as.obj.as_ref().unwrap() }.r#type == ty
+        match self {
+            Value::Obj(obj) => unsafe { obj.as_ref().unwrap() }.r#type == ty,
+            _ => false,
+        }
+    }
+
+    pub(crate) unsafe fn try_obj<T>(&self) -> Option<*mut T> {
+        match self {
+            Value::Obj(obj) => Some((*obj) as *mut T),
+            _ => None,
+        }
     }
 
     pub(crate) unsafe fn as_obj<T>(&self) -> *mut T {
-        (unsafe { self.r#as.obj } as *mut T)
+        self.try_obj::<T>().unwrap()
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[repr(C)]
-pub enum ValueType {
-    Bool,
-    Nil,
-    Number,
-    Obj,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub union ValueAs {
-    pub(crate) boolean: bool,
-    pub(crate) number: f64,
-    pub(crate) obj: *mut Obj,
 }
