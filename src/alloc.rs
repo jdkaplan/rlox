@@ -75,7 +75,8 @@ impl Gc<'_> {
         new_ptr
     }
 
-    pub fn resize_array<T>(&mut self, ptr: *mut T, old_cap: usize, new_cap: usize) -> *mut T {
+    #[allow(unused)]
+    fn resize_array<T>(&mut self, ptr: *mut T, old_cap: usize, new_cap: usize) -> *mut T {
         let old = mem::size_of::<T>() * old_cap;
         let new = mem::size_of::<T>() * new_cap;
         self.reallocate(ptr, old, new)

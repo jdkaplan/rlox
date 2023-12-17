@@ -1,4 +1,3 @@
-use std::ffi::c_char;
 use std::fmt;
 use std::num::Wrapping;
 use std::ptr;
@@ -65,8 +64,7 @@ impl Obj {
             ObjType::Native => gc.free(obj as *mut ObjNative),
             ObjType::String => {
                 let str = obj as *mut ObjString;
-                let str_ref = unsafe { str.as_mut().unwrap() };
-                gc.resize_array(str_ref.chars, str_ref.length + 1, 0);
+                std::mem::take(&mut unsafe { &mut *str }.chars);
                 gc.free(str)
             }
             ObjType::Upvalue => gc.free(obj as *mut ObjUpvalue),
@@ -274,22 +272,21 @@ impl ObjNative {
 pub struct ObjString {
     pub(crate) obj: Obj,
 
-    pub(crate) length: usize,
-    pub(crate) chars: *mut c_char,
+    pub(crate) chars: String,
     pub(crate) hash: u32,
 }
 
 impl fmt::Display for ObjString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", unsafe { string_from_c(self.chars, self.length) })
+        write!(f, "{}", self.chars)
     }
 }
 
 impl ObjString {
-    pub(crate) fn allocate(mut gc: Gc, chars: *mut c_char, length: usize, hash: u32) -> *mut Self {
+    pub(crate) fn allocate(mut gc: Gc, chars: String, hash: u32) -> *mut Self {
         let str = allocate_obj!(gc, ObjString, ObjType::String);
         unsafe {
-            (*str).length = length;
+            forget_uninit!(&mut (*str).chars);
             (*str).chars = chars;
             (*str).hash = hash;
         }
@@ -304,64 +301,49 @@ impl ObjString {
         str
     }
 
-    pub(crate) fn from_ptr(mut gc: Gc, chars: *mut c_char, length: usize) -> *mut Self {
-        let hash = str_hash(chars, length);
+    pub(crate) fn from_string(gc: Gc, chars: String) -> *mut Self {
+        let hash = str_hash(&chars);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
             .strings
-            .find_string(chars, length, hash);
-        if !interned.is_null() {
-            // This takes ownership of `chars`, so free the memory if it's not going to
-            // be stored anywhere.
-            gc.resize_array(chars, length + 1, 0);
-            return interned;
-        }
-
-        Self::allocate(gc, chars, length, hash)
-    }
-
-    pub(crate) fn from_str(mut gc: Gc, s: &str) -> *mut Self {
-        let chars = s.as_ptr() as *const c_char;
-        let length = s.len();
-        let hash = str_hash(chars, length);
-
-        let interned = unsafe { gc.vm.as_mut().unwrap() }
-            .strings
-            .find_string(chars, length, hash);
+            .find_string(&chars, hash);
         if !interned.is_null() {
             return interned;
         }
 
-        let heap_chars = gc.resize_array(ptr::null_mut(), 0, length + 1);
-        unsafe {
-            ptr::copy_nonoverlapping(chars, heap_chars, length);
-            *heap_chars.add(length) = '\0' as c_char;
-        }
-        Self::allocate(gc, heap_chars, length, hash)
+        Self::allocate(gc, chars, hash)
     }
 
-    pub(crate) fn concatenate(
-        mut gc: Gc,
-        a: *const ObjString,
-        b: *const ObjString,
-    ) -> *mut ObjString {
-        let length = unsafe { &*a }.length + unsafe { &*b }.length;
-        let chars = gc.resize_array(std::ptr::null_mut(), 0, length + 1);
+    pub(crate) fn from_str(gc: Gc, chars: &str) -> *mut Self {
+        let hash = str_hash(chars);
 
-        unsafe {
-            std::ptr::copy_nonoverlapping((*a).chars, chars, (*a).length);
-            std::ptr::copy_nonoverlapping((*b).chars, chars.add((*a).length), (*b).length);
-            *chars.add(length) = '\0' as c_char;
+        let interned = unsafe { gc.vm.as_mut().unwrap() }
+            .strings
+            .find_string(chars, hash);
+        if !interned.is_null() {
+            return interned;
         }
 
-        ObjString::from_ptr(gc, chars, length)
+        Self::allocate(gc, String::from(chars), hash)
+    }
+
+    pub(crate) fn concatenate(gc: Gc, a: *const ObjString, b: *const ObjString) -> *mut ObjString {
+        let a_chars = &unsafe { &*a }.chars;
+        let b_chars = &unsafe { &*b }.chars;
+        let length = a_chars.len() + b_chars.len();
+
+        let mut chars = String::with_capacity(length);
+        chars.push_str(a_chars);
+        chars.push_str(b_chars);
+
+        ObjString::from_string(gc, chars)
     }
 }
 
-fn str_hash(chars: *const c_char, length: usize) -> u32 {
-    let mut hash = Wrapping(2166136261);
-    for i in 0..length {
-        hash ^= unsafe { *chars.add(i) as u32 };
+fn str_hash(chars: &str) -> u32 {
+    let mut hash = Wrapping(2166136261_u32);
+    for b in chars.bytes() {
+        hash ^= b as u32;
         hash *= 16777619;
     }
     hash.0
@@ -391,9 +373,4 @@ impl fmt::Display for ObjUpvalue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "upvalue")
     }
-}
-
-unsafe fn string_from_c(chars: *const c_char, len: usize) -> String {
-    let bytes = std::slice::from_raw_parts(chars as *const u8, len);
-    String::from_utf8(bytes.to_vec()).expect("utf-8 source")
 }

@@ -1,4 +1,3 @@
-use std::ffi::c_char;
 use std::ptr;
 
 use crate::alloc::Gc;
@@ -157,12 +156,7 @@ impl Table {
         }
     }
 
-    pub(crate) fn find_string(
-        &self,
-        chars: *const c_char,
-        length: usize,
-        hash: u32,
-    ) -> *mut ObjString {
+    pub(crate) fn find_string(&self, chars: &str, hash: u32) -> *mut ObjString {
         if self.size == 0 {
             return ptr::null_mut();
         }
@@ -178,7 +172,7 @@ impl Table {
                     return ptr::null_mut();
                 }
                 // This was a tombstone, so keep searching.
-            } else if unsafe { str_equal(entry.key, chars, hash, length) } {
+            } else if unsafe { &*entry.key }.hash == hash && unsafe { &*entry.key }.chars == chars {
                 // Found it!
                 return entry.key;
             }
@@ -208,21 +202,4 @@ fn grow_cap(cap: usize) -> usize {
     } else {
         2 * cap
     }
-}
-
-unsafe fn str_equal(
-    a: *const ObjString,
-    b_chars: *const c_char,
-    b_hash: u32,
-    length: usize,
-) -> bool {
-    unsafe {
-        (*a).length == length && (*a).hash == b_hash && chars_equal((*a).chars, b_chars, length)
-    }
-}
-
-unsafe fn chars_equal(a: *const c_char, b_chars: *const c_char, length: usize) -> bool {
-    let aa = std::slice::from_raw_parts(a as *const u8, length);
-    let bb = std::slice::from_raw_parts(b_chars as *const u8, length);
-    aa == bb
 }
