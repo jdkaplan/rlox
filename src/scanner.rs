@@ -136,7 +136,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    pub fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> Token<'source> {
         self.skip_ignored();
 
         self.start = self.current;
@@ -232,7 +232,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn scan_identifier(&mut self) -> Token {
+    fn scan_identifier(&mut self) -> Token<'source> {
         while is_alpha(self.peek()) || is_digit(self.peek()) {
             self.advance();
         }
@@ -243,7 +243,7 @@ impl<'source> Scanner<'source> {
         self.make_token(ty)
     }
 
-    fn scan_number(&mut self) -> Token {
+    fn scan_number(&mut self) -> Token<'source> {
         while is_digit(self.peek()) {
             self.advance();
         }
@@ -261,7 +261,7 @@ impl<'source> Scanner<'source> {
         self.make_token(TokenType::Number)
     }
 
-    fn scan_string(&mut self) -> Token {
+    fn scan_string(&mut self) -> Token<'source> {
         while self.peek() != '"' && !self.at_eof() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -317,7 +317,7 @@ impl<'source> Scanner<'source> {
         true
     }
 
-    fn make_token(&self, ty: TokenType) -> Token {
+    fn make_token(&self, ty: TokenType) -> Token<'source> {
         let text = &self.source[self.start..self.current];
 
         Token {
@@ -327,7 +327,7 @@ impl<'source> Scanner<'source> {
         }
     }
 
-    fn make_error<'a>(&self, msg: &'a str) -> Token<'a> {
+    fn make_error<'msg>(&self, msg: &'msg str) -> Token<'msg> {
         Token {
             r#type: TokenType::Error,
             text: msg,

@@ -23,7 +23,7 @@ pub struct Parser<'source> {
     current: Token<'source>,
     previous: Token<'source>,
 
-    scanner: *mut Scanner<'source>,
+    scanner: Scanner<'source>,
     compiler: *mut Compiler<'source>,
     klass: *mut ClassCompiler,
 
@@ -101,8 +101,8 @@ pub struct Upvalue {
 }
 
 pub(crate) fn compile(vm: *mut Vm, source: &str) -> CompileResult<*mut ObjFunction> {
-    let mut scanner = Scanner::new(source);
-    let mut parser = Parser::new(&mut scanner, vm);
+    let scanner = Scanner::new(source);
+    let mut parser = Parser::new(scanner, vm);
 
     parser.start_compiler(FunctionMode::Script);
 
@@ -119,7 +119,7 @@ pub(crate) fn compile(vm: *mut Vm, source: &str) -> CompileResult<*mut ObjFuncti
 }
 
 impl<'source> Parser<'source> {
-    pub(crate) fn new(scanner: &mut Scanner<'source>, vm: *mut Vm) -> Self {
+    pub(crate) fn new(scanner: Scanner<'source>, vm: *mut Vm) -> Self {
         let mut parser = Self {
             // Will be overwritten by the immediate call to advance.
             current: Token::default(),
@@ -202,7 +202,7 @@ impl<'source> Parser<'source> {
     pub(crate) fn advance(&mut self) {
         self.previous = self.current;
         loop {
-            self.current = unsafe { &mut *self.scanner }.next_token();
+            self.current = self.scanner.next_token();
 
             if self.current.r#type != TokenType::Error {
                 break;
