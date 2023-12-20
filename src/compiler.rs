@@ -139,7 +139,7 @@ impl<'source> Parser<'source> {
     }
 
     pub(crate) fn start_compiler(&mut self, mode: FunctionMode) {
-        let gc = Gc::new(self.compiler, self.vm);
+        let gc = Gc::comptime(self.compiler, self.vm);
         let function = ObjFunction::new(gc);
 
         let compiler = Compiler::new(self.compiler, function, mode);
@@ -265,14 +265,14 @@ impl Parser<'_> {
     }
 
     pub(crate) fn emit_byte(&mut self, byte: impl Into<u8>) {
-        let gc = Gc::new(self.compiler, self.vm);
+        let gc = Gc::comptime(self.compiler, self.vm);
 
         let line = self.previous.line;
         self.current_chunk().write_byte(gc, byte.into(), line)
     }
 
     pub(crate) fn emit_bytes(&mut self, b1: impl Into<u8>, b2: impl Into<u8>) {
-        let gc = Gc::new(self.compiler, self.vm);
+        let gc = Gc::comptime(self.compiler, self.vm);
 
         let line = self.previous.line;
         let chunk = self.current_chunk();
@@ -327,7 +327,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn make_constant(&mut self, value: Value) -> u8 {
-        let gc = Gc::new(self.compiler, self.vm);
+        let gc = Gc::comptime(self.compiler, self.vm);
 
         if self.current_chunk().constants.len() > u8::MAX.into() {
             self.error("Too many constants in one chunk.");
@@ -411,7 +411,7 @@ impl Compiler<'_> {
 
 impl Parser<'_> {
     pub(crate) fn identifier_constant(&mut self, name: *const Token) -> u8 {
-        let gc = Gc::new(self.compiler, self.vm);
+        let gc = Gc::comptime(self.compiler, self.vm);
 
         let name = unsafe { name.as_ref().unwrap() };
 
@@ -750,7 +750,7 @@ pub(crate) fn number(parser: &mut Parser, _can_assign: bool) {
 }
 
 pub(crate) fn string(parser: &mut Parser, _can_assign: bool) {
-    let gc = Gc::new(parser.compiler, parser.vm);
+    let gc = Gc::comptime(parser.compiler, parser.vm);
 
     let content = parser
         .previous
@@ -1137,7 +1137,7 @@ impl Parser<'_> {
     pub(crate) fn function(&mut self, mode: FunctionMode) {
         self.start_compiler(mode);
 
-        let gc = Gc::new(self.compiler, self.vm);
+        let gc = Gc::comptime(self.compiler, self.vm);
 
         let compiler = unsafe { self.compiler.as_mut().unwrap() };
 

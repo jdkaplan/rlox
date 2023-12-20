@@ -99,10 +99,7 @@ impl Vm {
 
         vm.next_gc = 1024 * 1024;
 
-        let gc = Gc {
-            vm: &mut vm,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(&mut vm);
 
         vm.init_string = ObjString::from_str(gc, "init");
         vm.define_native("clock", clock_native);
@@ -111,10 +108,7 @@ impl Vm {
     }
 
     pub(crate) fn free(&mut self) {
-        let mut gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let mut gc = Gc::runtime(self);
 
         std::mem::take(&mut self.globals);
         std::mem::take(&mut self.strings);
@@ -206,10 +200,7 @@ impl Vm {
 // Calls
 impl Vm {
     pub(crate) fn call_value(&mut self, callee: Value, argc: usize) -> RuntimeResult<()> {
-        let gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(self);
 
         let Some(callee) = (unsafe { callee.try_obj::<Obj>() }) else {
             return Err(self.runtime_error("Can only call functions and classes."));
@@ -323,10 +314,7 @@ impl Vm {
     }
 
     pub(crate) fn define_method(&mut self, name: *mut ObjString) {
-        let gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(self);
 
         let method = self.peek(0);
         let klass = unsafe { self.peek(1).as_obj::<ObjClass>() };
@@ -341,10 +329,7 @@ impl Vm {
     ) -> RuntimeResult<()> {
         let klass = unsafe { klass.as_ref().unwrap() };
 
-        let gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(self);
 
         let Some(method) = klass.methods.get(name) else {
             return Err(
@@ -363,10 +348,7 @@ impl Vm {
     }
 
     pub(crate) fn define_native(&mut self, name: &'static str, func: NativeFn) {
-        let gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(self);
 
         // GC: Ensure the name and value objects are reachable in case resizing the
         // table triggers garbage collection.
@@ -405,10 +387,7 @@ impl Vm {
             return upvalue;
         }
 
-        let gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(self);
 
         // Linked-list insert between `prev` and `upvalue` (next).
         let created = ObjUpvalue::new(gc, local);
@@ -436,7 +415,7 @@ impl Vm {
 // Execution
 impl Vm {
     pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {
-        let gc = Gc::new(ptr::null_mut(), self);
+        let gc = Gc::runtime(self);
 
         let function = compile(self, source)?;
 
@@ -456,10 +435,7 @@ impl Vm {
 
     #[allow(unused_unsafe)]
     pub(crate) fn run(&mut self) -> Result<(), RuntimeError> {
-        let gc = Gc {
-            vm: self,
-            compiler: ptr::null_mut(),
-        };
+        let gc = Gc::runtime(self);
 
         macro_rules! last_frame {
             () => {{

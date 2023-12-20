@@ -17,12 +17,19 @@ const GC_GROWTH_FACTOR: usize = 2;
 #[repr(C)]
 pub struct Gc<'compiler> {
     pub(crate) vm: *mut Vm,
-    pub(crate) compiler: *mut Compiler<'compiler>,
+    pub(crate) compiler: Option<ptr::NonNull<Compiler<'compiler>>>,
 }
 
 impl<'compiler> Gc<'compiler> {
-    pub(crate) fn new(compiler: *mut Compiler<'compiler>, vm: *mut Vm) -> Self {
-        Self { compiler, vm }
+    pub(crate) fn comptime(compiler: *mut Compiler<'compiler>, vm: *mut Vm) -> Self {
+        Self {
+            compiler: ptr::NonNull::new(compiler),
+            vm,
+        }
+    }
+
+    pub(crate) fn runtime(vm: *mut Vm) -> Self {
+        Self { compiler: None, vm }
     }
 }
 
@@ -179,9 +186,9 @@ impl Gc<'_> {
 
         debug_log_gc!("---- mark compilers");
         let mut compiler = self.compiler;
-        while !compiler.is_null() {
-            self.mark_obj(unsafe { compiler.as_mut().unwrap() }.function as *mut Obj);
-            compiler = unsafe { &*compiler }.enclosing;
+        while let Some(mut inner) = compiler {
+            self.mark_obj(unsafe { inner.as_mut() }.function as *mut Obj);
+            compiler = ptr::NonNull::new(unsafe { inner.as_ref() }.enclosing);
         }
     }
 
