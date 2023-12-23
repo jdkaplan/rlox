@@ -114,7 +114,7 @@ pub(crate) fn compile(vm: &mut Vm, source: &str) -> CompileResult<NonNull<ObjFun
     if parser.had_error {
         Err(CompileError)
     } else {
-        Ok(NonNull::new(fun).unwrap())
+        Ok(fun)
     }
 }
 
@@ -147,7 +147,7 @@ impl<'source> Parser<'source> {
         self.compiler = NonNull::new(Box::into_raw(Box::new(compiler)));
     }
 
-    pub(crate) fn end_compiler(&mut self) -> *mut ObjFunction {
+    pub(crate) fn end_compiler(&mut self) -> NonNull<ObjFunction> {
         self.emit_return();
 
         let mut compiler =
@@ -160,7 +160,7 @@ impl<'source> Parser<'source> {
         }
 
         self.compiler = compiler.enclosing;
-        function
+        NonNull::new(function).unwrap()
     }
 
     pub(crate) fn start_panic(&mut self, msg: &str) {
@@ -411,10 +411,8 @@ impl Compiler<'_> {
 }
 
 impl Parser<'_> {
-    pub(crate) fn identifier_constant(&mut self, name: *const Token) -> u8 {
+    pub(crate) fn identifier_constant(&mut self, name: &Token) -> u8 {
         let gc = Gc::comptime(self.compiler, self.vm);
-
-        let name = unsafe { name.as_ref().unwrap() };
 
         let s = ObjString::from_str(gc, name.text);
         self.make_constant(Value::obj(s.cast::<Obj>()))
@@ -525,7 +523,8 @@ impl Parser<'_> {
             return 0;
         }
 
-        self.identifier_constant(&self.previous)
+        let prev = self.previous;
+        self.identifier_constant(&prev)
     }
 
     pub(crate) fn define_variable(&mut self, global: u8) {
@@ -721,7 +720,9 @@ pub(crate) fn call(parser: &mut Parser, _can_assign: bool) {
 
 pub(crate) fn dot(parser: &mut Parser, can_assign: bool) {
     parser.consume(TokenType::Identifier, "Expect property name after '.'.");
-    let name = parser.identifier_constant(&parser.previous);
+
+    let prev = parser.previous;
+    let name = parser.identifier_constant(&prev);
 
     if can_assign && parser.match_(TokenType::Equal) {
         parser.expression();
@@ -786,7 +787,9 @@ pub(crate) fn super_(parser: &mut Parser, _can_assign: bool) {
 
     parser.consume(TokenType::Dot, "Expect '.' after 'super'.");
     parser.consume(TokenType::Identifier, "Expect superclass method name.");
-    let name = parser.identifier_constant(&parser.previous);
+
+    let prev = parser.previous;
+    let name = parser.identifier_constant(&prev);
 
     parser.named_variable(&Token::synthetic("this"), false);
 
@@ -938,7 +941,9 @@ impl Parser<'_> {
 
     pub(crate) fn method(&mut self) {
         self.consume(TokenType::Identifier, "Expect method name.");
-        let constant = self.identifier_constant(&self.previous);
+
+        let prev = self.previous;
+        let constant = self.identifier_constant(&prev);
 
         let mode = if self.previous.text() == "init" {
             FunctionMode::Initializer
@@ -1177,7 +1182,6 @@ impl Parser<'_> {
         // The self.scope_end() isn't necessary because all locals will get implicitly
         // popped when the VM pops the CallFrame.
         let function = self.end_compiler();
-        let function = NonNull::new(function).unwrap();
         let constant = self.make_constant(Value::obj(function.cast::<Obj>()));
         self.emit_bytes(Opcode::Closure, constant);
 
