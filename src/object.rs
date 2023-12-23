@@ -296,7 +296,7 @@ impl ObjString {
 
         // GC: Ensure `str` is reachable temporarily in case resizing the table
         // triggers garbage collection.
-        let vm = unsafe { gc.vm.as_mut().unwrap() };
+        let vm = unsafe { gc.vm.as_mut() };
         vm.push(Value::obj(str.cast::<Obj>()));
         vm.strings.set(gc, str, Value::nil());
         vm.pop();
@@ -304,24 +304,20 @@ impl ObjString {
         str
     }
 
-    pub(crate) fn from_string(gc: Gc, chars: String) -> NonNull<Self> {
+    pub(crate) fn from_string(mut gc: Gc, chars: String) -> NonNull<Self> {
         let hash = str_hash(&chars);
 
-        let interned = unsafe { gc.vm.as_mut().unwrap() }
-            .strings
-            .find_string(&chars, hash);
+        let interned = unsafe { gc.vm.as_mut() }.strings.find_string(&chars, hash);
         match interned {
             Some(interned) => interned,
             None => Self::allocate(gc, chars, hash),
         }
     }
 
-    pub(crate) fn from_str(gc: Gc, chars: &str) -> NonNull<Self> {
+    pub(crate) fn from_str(mut gc: Gc, chars: &str) -> NonNull<Self> {
         let hash = str_hash(chars);
 
-        let interned = unsafe { gc.vm.as_mut().unwrap() }
-            .strings
-            .find_string(chars, hash);
+        let interned = unsafe { gc.vm.as_mut() }.strings.find_string(chars, hash);
         match interned {
             Some(interned) => interned,
             None => Self::allocate(gc, String::from(chars), hash),

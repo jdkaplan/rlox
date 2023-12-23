@@ -30,7 +30,7 @@ pub struct Parser<'source> {
     had_error: bool,
     panicking: bool,
 
-    vm: NonNull<Vm>,
+    vm: &'source mut Vm,
 }
 
 #[repr(C)]
@@ -100,9 +100,9 @@ pub struct Upvalue {
     is_local: bool,
 }
 
-pub(crate) fn compile(vm: *mut Vm, source: &str) -> CompileResult<NonNull<ObjFunction>> {
+pub(crate) fn compile(vm: &mut Vm, source: &str) -> CompileResult<NonNull<ObjFunction>> {
     let scanner = Scanner::new(source);
-    let mut parser = Parser::new(scanner, NonNull::new(vm).unwrap());
+    let mut parser = Parser::new(scanner, vm);
 
     parser.start_compiler(FunctionMode::Script);
 
@@ -119,7 +119,7 @@ pub(crate) fn compile(vm: *mut Vm, source: &str) -> CompileResult<NonNull<ObjFun
 }
 
 impl<'source> Parser<'source> {
-    pub(crate) fn new(scanner: Scanner<'source>, vm: NonNull<Vm>) -> Self {
+    pub(crate) fn new(scanner: Scanner<'source>, vm: &'source mut Vm) -> Self {
         let mut parser = Self {
             // Will be overwritten by the immediate call to advance.
             current: Token::default(),

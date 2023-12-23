@@ -16,36 +16,33 @@ const GC_GROWTH_FACTOR: usize = 2;
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct Gc<'compiler> {
-    pub(crate) vm: *mut Vm,
+    pub(crate) vm: NonNull<Vm>,
     pub(crate) compiler: Option<NonNull<Compiler<'compiler>>>,
 
     can_gc: bool,
 }
 
 impl<'compiler> Gc<'compiler> {
-    pub(crate) fn comptime(
-        compiler: Option<NonNull<Compiler<'compiler>>>,
-        vm: NonNull<Vm>,
-    ) -> Self {
+    pub(crate) fn comptime(compiler: Option<NonNull<Compiler<'compiler>>>, vm: &mut Vm) -> Self {
         Self {
             compiler,
-            vm: vm.as_ptr(),
+            vm: NonNull::from(vm),
             can_gc: true,
         }
     }
 
-    pub(crate) fn runtime(vm: *mut Vm) -> Self {
+    pub(crate) fn runtime(vm: &mut Vm) -> Self {
         Self {
             compiler: None,
-            vm,
+            vm: NonNull::from(vm),
             can_gc: true,
         }
     }
 
-    pub(crate) fn boot(vm: *mut Vm) -> Self {
+    pub(crate) fn boot(vm: &mut Vm) -> Self {
         Self {
             compiler: None,
-            vm,
+            vm: NonNull::from(vm),
             can_gc: false,
         }
     }
@@ -61,15 +58,12 @@ macro_rules! debug_log_gc {
 // TODO: This part feels more like an Alloc
 impl Gc<'_> {
     pub fn reallocate<T>(&mut self, ptr: *mut T, old: usize, new: usize) -> *mut T {
-        if self.vm.is_null() {
-            return _reallocate(ptr, new);
-        }
-
         // bytes = bytes - old + new; // but avoiding overflow
+        let vm = unsafe { self.vm.as_mut() };
         if new >= old {
-            unsafe { (*self.vm).bytes_allocated += new - old };
+            vm.bytes_allocated += new - old;
         } else {
-            unsafe { (*self.vm).bytes_allocated -= old - new };
+            vm.bytes_allocated -= old - new;
         }
 
         #[cfg(feature = "stress_gc")]
@@ -78,12 +72,9 @@ impl Gc<'_> {
             self.collect_garbage();
         }
 
-        if self.can_gc && unsafe { (*self.vm).bytes_allocated > (*self.vm).next_gc } {
-            debug_log_gc!(
-                "-- gc now: {} > {}",
-                unsafe { (*self.vm).bytes_allocated },
-                unsafe { (*self.vm).next_gc }
-            );
+        let vm = unsafe { self.vm.as_mut() };
+        if self.can_gc && vm.bytes_allocated > vm.next_gc {
+            debug_log_gc!("-- gc now: {} > {}", vm.bytes_allocated, vm.next_gc);
 
             self.collect_garbage();
         }
@@ -121,8 +112,8 @@ impl Gc<'_> {
     }
 
     pub(crate) unsafe fn claim(&mut self, mut ptr: NonNull<Obj>) {
-        (ptr.as_mut()).next = (*self.vm).objects;
-        (*self.vm).objects = Some(ptr);
+        (ptr.as_mut()).next = self.vm.as_ref().objects;
+        self.vm.as_mut().objects = Some(ptr);
     }
 }
 
@@ -137,7 +128,7 @@ impl Gc<'_> {
         assert_eq!(*count, 0);
         *count += 1;
 
-        let mut obj = unsafe { &*self.vm }.objects;
+        let mut obj = unsafe { self.vm.as_ref() }.objects;
         while let Some(r) = obj {
             unsafe {
                 assert!(!r.as_ref().is_marked);
@@ -145,30 +136,28 @@ impl Gc<'_> {
             }
         }
 
-        assert_eq!(unsafe { &*self.vm }.gc_pending.len(), 0);
+        assert_eq!(unsafe { self.vm.as_ref() }.gc_pending.len(), 0);
 
         debug_log_gc!("-- gc start");
         #[cfg(feature = "log_gc")]
-        let before = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
+        let before = unsafe { self.vm.as_ref() }.bytes_allocated;
 
         self.mark_roots();
         self.trace_references();
-        unsafe { self.vm.as_mut().unwrap() }
-            .strings
-            .remove_unreachable();
+        unsafe { self.vm.as_mut() }.strings.remove_unreachable();
         self.sweep();
 
-        unsafe { self.vm.as_mut().unwrap() }.next_gc =
-            unsafe { self.vm.as_mut().unwrap() }.bytes_allocated * GC_GROWTH_FACTOR;
+        unsafe { self.vm.as_mut() }.next_gc =
+            unsafe { self.vm.as_mut() }.bytes_allocated * GC_GROWTH_FACTOR;
 
         #[cfg(feature = "log_gc")]
-        let after = unsafe { self.vm.as_ref().unwrap() }.bytes_allocated;
+        let after = unsafe { self.vm.as_ref() }.bytes_allocated;
         debug_log_gc!(
             "   gc collected {} bytes ({} => {}) next at {}",
             before - after,
             before,
             after,
-            unsafe { self.vm.as_ref().unwrap() }.next_gc
+            unsafe { self.vm.as_ref() }.next_gc
         );
 
         *count -= 1;
@@ -179,7 +168,7 @@ impl Gc<'_> {
 // Mark
 impl Gc<'_> {
     fn mark_roots(&mut self) {
-        let vm = unsafe { self.vm.as_mut().unwrap() };
+        let vm = unsafe { self.vm.as_mut() };
 
         debug_log_gc!("---- mark slots");
         for value in &vm.stack {
@@ -229,13 +218,11 @@ impl Gc<'_> {
         }
         obj_ref.is_marked = true;
 
-        let vm = unsafe { self.vm.as_mut().unwrap() };
-
         // Don't use `reallocate` or any of its wrappers to avoid triggering recursive
         // garbage collection.
         //
         // TODO: Don't use the global allocator either because it's untracked.
-        vm.gc_pending.push(obj);
+        unsafe { self.vm.as_mut() }.gc_pending.push(obj);
     }
 
     fn mark_table(&mut self, table: &mut Table) {
@@ -252,7 +239,7 @@ impl Gc<'_> {
 impl Gc<'_> {
     fn trace_references(&mut self) {
         debug_log_gc!("---- trace references");
-        let vm = unsafe { self.vm.as_mut().unwrap() };
+        let vm = unsafe { self.vm.as_mut() };
         while let Some(obj) = vm.gc_pending.pop() {
             self.expand_obj(obj);
         }
@@ -319,7 +306,7 @@ impl Gc<'_> {
 impl Gc<'_> {
     fn sweep(&mut self) {
         debug_log_gc!("---- sweep");
-        let vm = unsafe { self.vm.as_mut().unwrap() };
+        let vm = unsafe { self.vm.as_mut() };
 
         let mut prev = None;
         let mut obj = vm.objects;

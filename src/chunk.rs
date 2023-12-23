@@ -30,16 +30,16 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    pub fn add_constant(&mut self, gc: Gc, value: Value) -> u8 {
+    pub fn add_constant(&mut self, mut gc: Gc, value: Value) -> u8 {
         let idx = self.constants.len();
 
         // GC: Ensure `value` is reachable temporarily in case resizing the constants
         // array triggers garbage collection.
         //
         // TODO: Use Alloc stash
-        unsafe { gc.vm.as_mut().unwrap() }.push(value);
+        unsafe { gc.vm.as_mut() }.push(value);
         self.constants.push(value);
-        unsafe { gc.vm.as_mut().unwrap() }.pop();
+        unsafe { gc.vm.as_mut() }.pop();
 
         idx as u8
     }
