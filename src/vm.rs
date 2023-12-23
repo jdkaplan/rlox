@@ -441,19 +441,19 @@ impl Vm {
 
         macro_rules! last_frame {
             () => {{
-                self.frames.last_mut().unwrap()
+                NonNull::from(self.frames.last_mut().unwrap())
             }};
         }
 
-        let mut frame: *mut CallFrame = last_frame!();
+        let mut frame: NonNull<CallFrame> = last_frame!();
 
         macro_rules! read_byte {
             () => {{
-                let ip = unsafe { &*frame }.ip;
-                let b = unsafe { ((*frame).closure.as_ref()).function.as_ref() }
+                let ip = unsafe { frame.as_ref() }.ip;
+                let b = unsafe { frame.as_ref().closure.as_ref().function.as_ref() }
                     .chunk
                     .code[ip];
-                unsafe { (*frame).ip += 1 };
+                unsafe { frame.as_mut().ip += 1 };
                 b
             }};
         }
@@ -469,7 +469,7 @@ impl Vm {
         macro_rules! read_constant {
             () => {{
                 let idx = read_byte!();
-                unsafe { ((*frame).closure.as_ref()).function.as_ref() }
+                unsafe { (frame.as_ref().closure.as_ref()).function.as_ref() }
                     .chunk
                     .constants[idx as usize]
             }};
@@ -528,7 +528,7 @@ impl Vm {
 
             #[cfg(feature = "trace_execution")]
             unsafe {
-                let frame = unsafe { frame.as_ref().unwrap() };
+                let frame = unsafe { frame.as_ref() };
                 let closure = unsafe { frame.closure.as_ref() };
                 let func = unsafe { closure.function.as_ref() };
 
@@ -558,13 +558,13 @@ impl Vm {
 
                 Opcode::GetLocal => {
                     let slot = read_byte!();
-                    let value = unsafe { *((*frame).slots.as_ptr().offset(slot as isize)) };
+                    let value = unsafe { *frame.as_ref().slots.as_ptr().offset(slot as isize) };
                     self.push(value);
                 }
                 Opcode::SetLocal => {
                     let slot = read_byte!();
                     let value = self.peek(0);
-                    unsafe { *((*frame).slots.as_ptr().offset(slot as isize)) = value };
+                    unsafe { *frame.as_ref().slots.as_ptr().offset(slot as isize) = value };
                 }
 
                 Opcode::DefineGlobal => {
@@ -606,7 +606,7 @@ impl Vm {
                 Opcode::GetUpvalue => {
                     let slot = read_byte!();
                     let upvalue =
-                        unsafe { (*frame).closure.as_ref() }.upvalues[slot as usize].unwrap();
+                        unsafe { frame.as_ref().closure.as_ref() }.upvalues[slot as usize].unwrap();
                     let location = unsafe { upvalue.as_ref().location.unwrap() };
                     self.push(unsafe { *location.as_ref() });
                 }
@@ -614,7 +614,7 @@ impl Vm {
                     let slot = read_byte!();
                     let value = self.peek(0);
                     let mut upvalue =
-                        unsafe { (*frame).closure.as_mut() }.upvalues[slot as usize].unwrap();
+                        unsafe { frame.as_mut().closure.as_mut() }.upvalues[slot as usize].unwrap();
                     *unsafe { upvalue.as_mut().location.unwrap().as_mut() } = value;
                 }
 
@@ -720,17 +720,17 @@ impl Vm {
 
                 Opcode::Jump => {
                     let offset = read_short!();
-                    unsafe { (*frame).ip += offset as usize };
+                    unsafe { frame.as_mut().ip += offset as usize };
                 }
                 Opcode::JumpIfFalse => {
                     let offset = read_short!();
                     if self.peek(0).is_falsey() {
-                        unsafe { (*frame).ip += offset as usize };
+                        unsafe { frame.as_mut().ip += offset as usize };
                     }
                 }
                 Opcode::Loop => {
                     let offset = read_short!();
-                    unsafe { (*frame).ip -= offset as usize };
+                    unsafe { frame.as_mut().ip -= offset as usize };
                 }
 
                 Opcode::Call => {
@@ -764,15 +764,14 @@ impl Vm {
 
                         if is_local != 0 {
                             unsafe {
-                                closure.as_mut().upvalues[i] =
-                                    NonNull::new(self.capture_upvalue(
-                                        (*frame).slots.as_ptr().add(index as usize),
-                                    ))
+                                closure.as_mut().upvalues[i] = NonNull::new(self.capture_upvalue(
+                                    frame.as_ref().slots.as_ptr().add(index as usize),
+                                ))
                             };
                         } else {
                             unsafe {
                                 closure.as_mut().upvalues[i] =
-                                    (*frame).closure.as_mut().upvalues[index as usize];
+                                    frame.as_mut().closure.as_mut().upvalues[index as usize];
                             };
                         }
                     }
@@ -784,7 +783,7 @@ impl Vm {
                 }
                 Opcode::Return => {
                     let res = self.pop();
-                    self.close_upvalues(unsafe { &*frame }.slots.as_ptr());
+                    self.close_upvalues(unsafe { frame.as_ref() }.slots.as_ptr());
 
                     self.frames.pop();
                     if self.frames.is_empty() {
@@ -792,7 +791,7 @@ impl Vm {
                         return Ok(());
                     }
 
-                    self.set_sp(unsafe { (*frame).slots.as_ptr() });
+                    self.set_sp(unsafe { frame.as_ref().slots.as_ptr() });
                     self.push(res);
                     frame = last_frame!();
                 }
