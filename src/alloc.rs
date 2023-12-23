@@ -1,6 +1,6 @@
 use std::alloc::{dealloc, realloc, Layout};
 use std::mem;
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::sync::{Mutex, OnceLock};
 
 use crate::compiler::Compiler;
@@ -17,19 +17,37 @@ const GC_GROWTH_FACTOR: usize = 2;
 #[repr(C)]
 pub struct Gc<'compiler> {
     pub(crate) vm: *mut Vm,
-    pub(crate) compiler: Option<ptr::NonNull<Compiler<'compiler>>>,
+    pub(crate) compiler: Option<NonNull<Compiler<'compiler>>>,
+
+    can_gc: bool,
 }
 
 impl<'compiler> Gc<'compiler> {
-    pub(crate) fn comptime(compiler: *mut Compiler<'compiler>, vm: *mut Vm) -> Self {
+    pub(crate) fn comptime(
+        compiler: Option<NonNull<Compiler<'compiler>>>,
+        vm: NonNull<Vm>,
+    ) -> Self {
         Self {
-            compiler: ptr::NonNull::new(compiler),
-            vm,
+            compiler,
+            vm: vm.as_ptr(),
+            can_gc: true,
         }
     }
 
     pub(crate) fn runtime(vm: *mut Vm) -> Self {
-        Self { compiler: None, vm }
+        Self {
+            compiler: None,
+            vm,
+            can_gc: true,
+        }
+    }
+
+    pub(crate) fn boot(vm: *mut Vm) -> Self {
+        Self {
+            compiler: None,
+            vm,
+            can_gc: false,
+        }
     }
 }
 
@@ -55,12 +73,12 @@ impl Gc<'_> {
         }
 
         #[cfg(feature = "stress_gc")]
-        if new > old {
+        if self.can_gc && new > old {
             debug_log_gc!("-- gc stress");
             self.collect_garbage();
         }
 
-        if unsafe { (*self.vm).bytes_allocated > (*self.vm).next_gc } {
+        if self.can_gc && unsafe { (*self.vm).bytes_allocated > (*self.vm).next_gc } {
             debug_log_gc!(
                 "-- gc now: {} > {}",
                 unsafe { (*self.vm).bytes_allocated },
@@ -89,10 +107,11 @@ impl Gc<'_> {
         self.reallocate(ptr, old, new)
     }
 
-    pub(crate) fn free_objects(&mut self, mut root: *mut Obj) {
-        while !root.is_null() {
-            let next = unsafe { (*root).next };
-            Obj::free(root, self);
+    #[allow(unused)]
+    pub(crate) fn free_objects(&mut self, mut root: Option<NonNull<Obj>>) {
+        while let Some(current) = root {
+            let next = unsafe { current.as_ref().next };
+            Obj::free(current.as_ptr(), self);
             root = next;
         }
     }
@@ -101,9 +120,9 @@ impl Gc<'_> {
         self.reallocate(ptr, mem::size_of::<T>(), 0);
     }
 
-    pub(crate) unsafe fn claim(&mut self, ptr: *mut Obj) {
-        (*ptr).next = (*self.vm).objects;
-        (*self.vm).objects = ptr;
+    pub(crate) unsafe fn claim(&mut self, mut ptr: NonNull<Obj>) {
+        (ptr.as_mut()).next = (*self.vm).objects;
+        (*self.vm).objects = Some(ptr);
     }
 }
 
@@ -119,9 +138,11 @@ impl Gc<'_> {
         *count += 1;
 
         let mut obj = unsafe { &*self.vm }.objects;
-        while let Some(r) = unsafe { obj.as_mut() } {
-            assert!(!r.is_marked);
-            obj = r.next;
+        while let Some(r) = obj {
+            unsafe {
+                assert!(!r.as_ref().is_marked);
+                obj = r.as_ref().next;
+            }
         }
 
         assert_eq!(unsafe { &*self.vm }.gc_pending.len(), 0);
@@ -167,28 +188,28 @@ impl Gc<'_> {
 
         debug_log_gc!("---- mark frames");
         for frame in &mut vm.frames {
-            let obj = frame.closure as *mut Obj;
+            let obj = frame.closure.cast::<Obj>();
             self.mark_obj(obj);
         }
 
         debug_log_gc!("---- mark upvalues");
         let mut upvalue = vm.open_upvalues;
-        while !upvalue.is_null() {
-            self.mark_obj(upvalue as *mut Obj);
-            upvalue = unsafe { &*upvalue }.next;
+        while let Some(current) = upvalue {
+            self.mark_obj(current.cast::<Obj>());
+            upvalue = unsafe { current.as_ref() }.next;
         }
 
         debug_log_gc!("---- mark globals");
         self.mark_table(&mut vm.globals);
 
         debug_log_gc!("---- mark init string");
-        self.mark_obj(vm.init_string as *mut Obj);
+        self.mark_obj(vm.init_string.cast::<Obj>());
 
         debug_log_gc!("---- mark compilers");
         let mut compiler = self.compiler;
         while let Some(mut inner) = compiler {
-            self.mark_obj(unsafe { inner.as_mut() }.function as *mut Obj);
-            compiler = ptr::NonNull::new(unsafe { inner.as_ref() }.enclosing);
+            self.mark_obj(unsafe { inner.as_mut() }.function.cast::<Obj>());
+            compiler = unsafe { inner.as_ref() }.enclosing;
         }
     }
 
@@ -198,17 +219,15 @@ impl Gc<'_> {
         }
     }
 
-    fn mark_obj(&mut self, obj: *mut Obj) {
+    fn mark_obj(&mut self, mut obj: NonNull<Obj>) {
         debug_log_gc!("mark_obj: {:?}", obj);
 
-        let Some(obj) = (unsafe { obj.as_mut() }) else {
-            return;
-        };
+        let obj_ref = unsafe { obj.as_mut() };
 
-        if obj.is_marked {
+        if obj_ref.is_marked {
             return;
         }
-        obj.is_marked = true;
+        obj_ref.is_marked = true;
 
         let vm = unsafe { self.vm.as_mut().unwrap() };
 
@@ -221,7 +240,9 @@ impl Gc<'_> {
 
     fn mark_table(&mut self, table: &mut Table) {
         for entry in &mut table.entries {
-            self.mark_obj(entry.key as *mut Obj);
+            if let Some(key) = entry.key {
+                self.mark_obj(key.cast::<Obj>());
+            }
             self.mark_value(entry.value);
         }
     }
@@ -237,50 +258,52 @@ impl Gc<'_> {
         }
     }
 
-    fn expand_obj(&mut self, obj: *mut Obj) {
+    fn expand_obj(&mut self, obj: NonNull<Obj>) {
         debug_log_gc!("expand obj: {:?}", obj);
-        match unsafe { obj.as_ref().unwrap().r#type } {
+        match unsafe { obj.as_ref().r#type } {
             ObjType::BoundMethod => {
-                let bound = unsafe { (obj as *mut ObjBoundMethod).as_mut().unwrap() };
+                let bound = unsafe { (obj.cast::<ObjBoundMethod>()).as_mut() };
                 debug_log_gc!("expand as: {}", bound);
 
                 self.mark_value(bound.receiver);
-                self.mark_obj(bound.method as *mut Obj);
+                self.mark_obj(bound.method.cast::<Obj>());
             }
             ObjType::Class => {
-                let klass = unsafe { (obj as *mut ObjClass).as_mut().unwrap() };
+                let klass = unsafe { (obj.cast::<ObjClass>()).as_mut() };
                 debug_log_gc!("expand as: {}", klass);
 
-                self.mark_obj(klass.name as *mut Obj);
+                self.mark_obj(klass.name.cast::<Obj>());
                 self.mark_table(&mut klass.methods);
             }
             ObjType::Closure => {
-                let closure = unsafe { (obj as *mut ObjClosure).as_mut().unwrap() };
+                let closure = unsafe { (obj.cast::<ObjClosure>()).as_mut() };
                 debug_log_gc!("expand as: {}", closure);
 
-                self.mark_obj(closure.function as *mut Obj);
-                for upvalue in &closure.upvalues {
-                    self.mark_obj((*upvalue) as *mut Obj);
+                self.mark_obj(closure.function.cast::<Obj>());
+                for upvalue in closure.upvalues.iter().flatten() {
+                    self.mark_obj(upvalue.cast::<Obj>());
                 }
             }
             ObjType::Function => {
-                let function = unsafe { (obj as *mut ObjFunction).as_mut().unwrap() };
+                let function = unsafe { (obj.cast::<ObjFunction>()).as_mut() };
                 debug_log_gc!("expand as: {}", function);
 
-                self.mark_obj(function.name as *mut Obj);
+                if let Some(name) = function.name {
+                    self.mark_obj(name.cast::<Obj>());
+                }
                 for i in 0..function.chunk.constants.len() {
                     self.mark_value(function.chunk.constants[i]);
                 }
             }
             ObjType::Instance => {
-                let instance = unsafe { (obj as *mut ObjInstance).as_mut().unwrap() };
+                let instance = unsafe { (obj.cast::<ObjInstance>()).as_mut() };
                 debug_log_gc!("expand as: {}", instance);
 
-                self.mark_obj(instance.klass as *mut Obj);
+                self.mark_obj(instance.klass.cast::<Obj>());
                 self.mark_table(&mut instance.fields);
             }
             ObjType::Upvalue => {
-                let upvalue = unsafe { (obj as *mut ObjUpvalue).as_mut().unwrap() };
+                let upvalue = unsafe { (obj.cast::<ObjUpvalue>()).as_mut() };
                 debug_log_gc!("expand as: {}", upvalue);
 
                 self.mark_value(upvalue.closed);
@@ -298,10 +321,12 @@ impl Gc<'_> {
         debug_log_gc!("---- sweep");
         let vm = unsafe { self.vm.as_mut().unwrap() };
 
-        let mut prev = ptr::null_mut();
+        let mut prev = None;
         let mut obj = vm.objects;
 
-        while let Some(obj_ref) = unsafe { obj.as_mut() } {
+        while let Some(mut obj_ptr) = obj {
+            let obj_ref = unsafe { obj_ptr.as_mut() };
+
             // Reachable => reset and continue
             if obj_ref.is_marked {
                 obj_ref.is_marked = false;
@@ -313,11 +338,11 @@ impl Gc<'_> {
             }
 
             // Pop the unreachable object from the list...
-            let unreachable = obj;
+            let unreachable = obj_ptr;
             debug_log_gc!("unreachable: {:?}", obj);
             obj = obj_ref.next;
-            if !prev.is_null() {
-                unsafe { (*prev).next = obj };
+            if let Some(mut prev) = prev {
+                unsafe { prev.as_mut() }.next = obj;
             } else {
                 // The first object was the unreachable one, so start the VM's object list
                 // at the next one.
@@ -325,7 +350,7 @@ impl Gc<'_> {
             }
 
             // ... and free it.
-            self.free(unreachable);
+            self.free(unreachable.as_ptr());
         }
     }
 }

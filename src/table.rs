@@ -1,4 +1,4 @@
-use std::ptr;
+use std::ptr::NonNull;
 
 use crate::alloc::Gc;
 use crate::object::ObjString;
@@ -14,44 +14,40 @@ pub struct Table {
     pub(crate) entries: Vec<Entry>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 #[repr(C)]
 pub struct Entry {
-    pub(crate) key: *mut ObjString,
+    pub(crate) key: Option<NonNull<ObjString>>,
     pub(crate) value: Value,
 }
 
-impl Default for Entry {
-    fn default() -> Self {
-        Self {
-            key: ptr::null_mut(),
-            value: Default::default(),
-        }
-    }
-}
-
-fn find_slot(entries: &[Entry], key: *const ObjString) -> usize {
+fn find_slot(entries: &[Entry], key: NonNull<ObjString>) -> usize {
     let cap = entries.len() as u32;
 
-    let mut idx = unsafe { key.as_ref().unwrap() }.hash % cap;
+    let mut idx = unsafe { key.as_ref() }.hash % cap;
     let mut tombstone = None;
 
     loop {
         let slot = idx as usize;
         let entry = &entries[slot];
-        if entry.key.is_null() {
-            if entry.value.is_nil() {
-                // Empty entry. If there was a tombstone along the way, return that
-                // instead to reuse the space.
-                return tombstone.unwrap_or(slot);
-            } else {
-                // Found a tombstone. Store it for later unless we already found one.
-                if tombstone.is_none() {
-                    tombstone = Some(slot);
+        match entry.key {
+            Some(k) => {
+                if k == key {
+                    return slot;
                 }
             }
-        } else if entry.key as *const ObjString == key {
-            return slot;
+            None => {
+                if entry.value.is_nil() {
+                    // Empty entry. If there was a tombstone along the way, return that
+                    // instead to reuse the space.
+                    return tombstone.unwrap_or(slot);
+                } else {
+                    // Found a tombstone. Store it for later unless we already found one.
+                    if tombstone.is_none() {
+                        tombstone = Some(slot);
+                    }
+                }
+            }
         }
 
         idx = (idx + 1) % cap;
@@ -71,10 +67,9 @@ impl Table {
 
         self.size = 0;
         for entry in &self.entries {
-            let key = entry.key;
-            if key.is_null() {
+            let Some(key) = entry.key else {
                 continue;
-            }
+            };
 
             let slot = find_slot(&entries, key);
             let dest = &mut entries[slot];
@@ -90,21 +85,17 @@ impl Table {
         self.entries.len()
     }
 
-    pub(crate) fn get(&self, key: *const ObjString) -> Option<Value> {
+    pub(crate) fn get(&self, key: NonNull<ObjString>) -> Option<Value> {
         if self.size == 0 {
             return None;
         }
 
         let slot = find_slot(&self.entries, key);
         let entry = &self.entries[slot];
-        if entry.key.is_null() {
-            return None;
-        }
-
-        Some(entry.value)
+        entry.key.map(|_| entry.value)
     }
 
-    pub(crate) fn set(&mut self, gc: Gc, key: *mut ObjString, value: Value) -> bool {
+    pub(crate) fn set(&mut self, gc: Gc, key: NonNull<ObjString>, value: Value) -> bool {
         if (self.size + 1) as f64 > (self.cap() as f64) * TABLE_MAX_LOAD {
             let cap = grow_cap(self.cap());
             self.resize(gc, cap);
@@ -113,18 +104,18 @@ impl Table {
         let slot = find_slot(&self.entries, key);
         let entry = &mut self.entries[slot];
 
-        let is_new = entry.key.is_null();
+        let is_new = entry.key.is_none();
         if is_new && entry.value.is_nil() {
             self.size += 1;
         }
 
-        entry.key = key;
+        entry.key = Some(key);
         entry.value = value;
 
         is_new
     }
 
-    pub(crate) fn delete(&mut self, key: *const ObjString) -> bool {
+    pub(crate) fn delete(&mut self, key: NonNull<ObjString>) -> bool {
         if self.size == 0 {
             return false;
         }
@@ -135,14 +126,14 @@ impl Table {
 
     pub(crate) fn delete_slot(&mut self, slot: usize) -> bool {
         let entry = &mut self.entries[slot];
-        if entry.key.is_null() {
+        if entry.key.is_none() {
             // Already tombstoned, so there was no value here.
             return false;
         }
 
         // Put a tombstone in the entry so linear probing still considers this as part
         // of the chain.
-        entry.key = ptr::null_mut();
+        entry.key = None;
         entry.value = Value::bool(false);
 
         true
@@ -150,15 +141,15 @@ impl Table {
 
     pub(crate) fn extend(&mut self, gc: Gc, src: &Table) {
         for entry in &src.entries {
-            if !entry.key.is_null() {
-                self.set(gc, entry.key, entry.value);
+            if let Some(key) = entry.key {
+                self.set(gc, key, entry.value);
             }
         }
     }
 
-    pub(crate) fn find_string(&self, chars: &str, hash: u32) -> *mut ObjString {
+    pub(crate) fn find_string(&self, chars: &str, hash: u32) -> Option<NonNull<ObjString>> {
         if self.size == 0 {
-            return ptr::null_mut();
+            return None;
         }
 
         let cap = self.cap() as u32;
@@ -166,15 +157,21 @@ impl Table {
         let mut idx = hash % cap;
         loop {
             let entry = &self.entries[idx as usize];
-            if entry.key.is_null() {
-                if entry.value.is_nil() {
-                    // Truly empty.
-                    return ptr::null_mut();
+            match entry.key {
+                None => {
+                    if entry.value.is_nil() {
+                        // Truly empty.
+                        return None;
+                    }
+                    // This was a tombstone, so keep searching.
                 }
-                // This was a tombstone, so keep searching.
-            } else if unsafe { &*entry.key }.hash == hash && unsafe { &*entry.key }.chars == chars {
-                // Found it!
-                return entry.key;
+                Some(key) => {
+                    let key = unsafe { key.as_ref() };
+                    if key.hash == hash && key.chars == chars {
+                        // Found it!
+                        return entry.key;
+                    }
+                }
             }
 
             idx = (idx + 1) % cap;
@@ -184,13 +181,12 @@ impl Table {
     pub(crate) fn remove_unreachable(&mut self) {
         for i in 0..self.cap() {
             let entry = &self.entries[i];
-            if entry.key.is_null() {
+            let Some(mut key) = entry.key else {
                 continue;
-            }
+            };
 
-            let key = unsafe { entry.key.as_mut().unwrap() };
-            if !key.obj.is_marked {
-                self.delete(entry.key);
+            if !unsafe { key.as_mut() }.obj.is_marked {
+                self.delete(key);
             }
         }
     }

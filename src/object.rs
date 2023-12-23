@@ -1,6 +1,6 @@
 use std::fmt;
 use std::num::Wrapping;
-use std::ptr;
+use std::ptr::NonNull;
 
 use crate::alloc::Gc;
 use crate::chunk::Chunk;
@@ -12,7 +12,7 @@ use crate::value::Value;
 pub struct Obj {
     pub(crate) r#type: ObjType,
     pub(crate) is_marked: bool,
-    pub(crate) next: *mut Obj,
+    pub(crate) next: Option<NonNull<Obj>>,
 }
 
 impl fmt::Display for Obj {
@@ -95,8 +95,9 @@ macro_rules! allocate_obj {
             (*obj).obj.is_marked = false;
         }
 
-        unsafe { $gc.claim(obj as *mut Obj) };
-        obj
+        let ptr = NonNull::new(obj).unwrap();
+        unsafe { $gc.claim(ptr.cast::<Obj>()) };
+        ptr
     }};
 }
 
@@ -104,15 +105,15 @@ macro_rules! allocate_obj {
 pub struct ObjBoundMethod {
     pub(crate) obj: Obj,
     pub(crate) receiver: Value,
-    pub(crate) method: *mut ObjClosure,
+    pub(crate) method: NonNull<ObjClosure>,
 }
 
 impl ObjBoundMethod {
-    pub(crate) fn new(mut gc: Gc, receiver: Value, method: *mut ObjClosure) -> *mut Self {
-        let bound = allocate_obj!(gc, ObjBoundMethod, ObjType::BoundMethod);
+    pub(crate) fn new(mut gc: Gc, receiver: Value, method: NonNull<ObjClosure>) -> NonNull<Self> {
+        let mut bound = allocate_obj!(gc, ObjBoundMethod, ObjType::BoundMethod);
         unsafe {
-            (*bound).receiver = receiver;
-            (*bound).method = method;
+            bound.as_mut().receiver = receiver;
+            bound.as_mut().method = method;
         }
         bound
     }
@@ -120,7 +121,7 @@ impl ObjBoundMethod {
 
 impl fmt::Display for ObjBoundMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", unsafe { &*(*self.method).function })
+        write!(f, "{}", unsafe { self.method.as_ref().function.as_ref() })
     }
 }
 
@@ -128,7 +129,7 @@ impl fmt::Display for ObjBoundMethod {
 pub struct ObjClass {
     pub(crate) obj: Obj,
 
-    pub(crate) name: *mut ObjString,
+    pub(crate) name: NonNull<ObjString>,
     pub(crate) methods: Table,
 }
 
@@ -141,11 +142,11 @@ macro_rules! forget_uninit {
 }
 
 impl ObjClass {
-    pub(crate) fn new(mut gc: Gc, name: *mut ObjString) -> *mut ObjClass {
-        let klass = allocate_obj!(gc, ObjClass, ObjType::Class);
+    pub(crate) fn new(mut gc: Gc, name: NonNull<ObjString>) -> NonNull<Self> {
+        let mut klass = allocate_obj!(gc, ObjClass, ObjType::Class);
         unsafe {
-            (*klass).name = name;
-            forget_uninit!(&mut (*klass).methods);
+            klass.as_mut().name = name;
+            forget_uninit!(&mut (klass.as_mut()).methods);
         }
         klass
     }
@@ -153,7 +154,7 @@ impl ObjClass {
 
 impl fmt::Display for ObjClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", unsafe { &*self.name })
+        write!(f, "{}", unsafe { self.name.as_ref() })
     }
 }
 
@@ -161,20 +162,20 @@ impl fmt::Display for ObjClass {
 pub struct ObjClosure {
     pub(crate) obj: Obj,
 
-    pub(crate) function: *mut ObjFunction,
-    pub(crate) upvalues: Vec<*mut ObjUpvalue>,
+    pub(crate) function: NonNull<ObjFunction>,
+    pub(crate) upvalues: Vec<Option<NonNull<ObjUpvalue>>>,
 }
 
 impl ObjClosure {
-    pub(crate) fn new(mut gc: Gc, function: *mut ObjFunction) -> *mut ObjClosure {
-        let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
-        let upvalues = vec![ptr::null_mut(); upvalue_count];
+    pub(crate) fn new(mut gc: Gc, function: NonNull<ObjFunction>) -> NonNull<Self> {
+        let upvalue_count = unsafe { function.as_ref() }.upvalue_count;
+        let upvalues = vec![None; upvalue_count];
 
-        let closure = allocate_obj!(gc, ObjClosure, ObjType::Closure);
+        let mut closure = allocate_obj!(gc, ObjClosure, ObjType::Closure);
         unsafe {
-            (*closure).function = function;
-            forget_uninit!(&mut (*closure).upvalues);
-            (*closure).upvalues = upvalues;
+            closure.as_mut().function = function;
+            forget_uninit!(&mut (closure.as_mut()).upvalues);
+            closure.as_mut().upvalues = upvalues;
         }
         closure
     }
@@ -182,7 +183,7 @@ impl ObjClosure {
 
 impl fmt::Display for ObjClosure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", unsafe { &*self.function })
+        write!(f, "{}", unsafe { self.function.as_ref() })
     }
 }
 
@@ -193,35 +194,35 @@ pub struct ObjFunction {
     pub(crate) arity: usize,
     pub(crate) upvalue_count: usize,
     pub(crate) chunk: Chunk,
-    pub(crate) name: *mut ObjString,
+    pub(crate) name: Option<NonNull<ObjString>>,
 }
 
 impl ObjFunction {
-    pub(crate) fn new(mut gc: Gc) -> *mut ObjFunction {
-        let function = allocate_obj!(gc, ObjFunction, ObjType::Function);
+    pub(crate) fn new(mut gc: Gc) -> NonNull<Self> {
+        let mut function = allocate_obj!(gc, ObjFunction, ObjType::Function);
         unsafe {
-            (*function).arity = 0;
-            (*function).upvalue_count = 0;
-            (*function).name = ptr::null_mut();
-            forget_uninit!(&mut (*function).chunk);
+            function.as_mut().arity = 0;
+            function.as_mut().upvalue_count = 0;
+            function.as_mut().name = None;
+            forget_uninit!(&mut (function.as_mut()).chunk);
         }
         function
     }
 
     pub(crate) fn name(&self) -> String {
         let name = self.name;
-        if name.is_null() {
-            String::from("script")
+        if let Some(name) = name {
+            format!("{}", unsafe { name.as_ref() })
         } else {
-            format!("{}", unsafe { name.as_ref().unwrap() })
+            String::from("script")
         }
     }
 }
 
 impl fmt::Display for ObjFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(name) = unsafe { self.name.as_ref() } {
-            write!(f, "<fn {}>", name)
+        if let Some(name) = self.name {
+            write!(f, "<fn {}>", unsafe { name.as_ref() })
         } else {
             write!(f, "<script>")
         }
@@ -231,16 +232,16 @@ impl fmt::Display for ObjFunction {
 #[repr(C)]
 pub struct ObjInstance {
     pub(crate) obj: Obj,
-    pub(crate) klass: *mut ObjClass,
+    pub(crate) klass: NonNull<ObjClass>,
     pub(crate) fields: Table,
 }
 
 impl ObjInstance {
-    pub(crate) fn new(mut gc: Gc, klass: *mut ObjClass) -> *mut ObjInstance {
-        let instance = allocate_obj!(gc, ObjInstance, ObjType::Instance);
+    pub(crate) fn new(mut gc: Gc, klass: NonNull<ObjClass>) -> NonNull<Self> {
+        let mut instance = allocate_obj!(gc, ObjInstance, ObjType::Instance);
         unsafe {
-            (*instance).klass = klass;
-            forget_uninit!(&mut (*instance).fields);
+            instance.as_mut().klass = klass;
+            forget_uninit!(&mut (instance.as_mut()).fields);
         }
         instance
     }
@@ -248,7 +249,9 @@ impl ObjInstance {
 
 impl fmt::Display for ObjInstance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} instance", unsafe { &*(*self.klass).name })
+        write!(f, "{} instance", unsafe {
+            self.klass.as_ref().name.as_ref()
+        })
     }
 }
 
@@ -261,9 +264,9 @@ pub struct ObjNative {
 }
 
 impl ObjNative {
-    pub(crate) fn new(mut gc: Gc, func: NativeFn) -> *mut ObjNative {
-        let native = allocate_obj!(gc, ObjNative, ObjType::Native);
-        unsafe { (*native).r#fn = func };
+    pub(crate) fn new(mut gc: Gc, func: NativeFn) -> NonNull<Self> {
+        let mut native = allocate_obj!(gc, ObjNative, ObjType::Native);
+        unsafe { native.as_mut().r#fn = func };
         native
     }
 }
@@ -283,53 +286,55 @@ impl fmt::Display for ObjString {
 }
 
 impl ObjString {
-    pub(crate) fn allocate(mut gc: Gc, chars: String, hash: u32) -> *mut Self {
-        let str = allocate_obj!(gc, ObjString, ObjType::String);
+    pub(crate) fn allocate(mut gc: Gc, chars: String, hash: u32) -> NonNull<Self> {
+        let mut str = allocate_obj!(gc, ObjString, ObjType::String);
         unsafe {
-            forget_uninit!(&mut (*str).chars);
-            (*str).chars = chars;
-            (*str).hash = hash;
+            forget_uninit!(&mut (str.as_mut()).chars);
+            str.as_mut().chars = chars;
+            str.as_mut().hash = hash;
         }
 
         // GC: Ensure `str` is reachable temporarily in case resizing the table
         // triggers garbage collection.
         let vm = unsafe { gc.vm.as_mut().unwrap() };
-        vm.push(Value::obj(str as *mut Obj));
+        vm.push(Value::obj(str.cast::<Obj>()));
         vm.strings.set(gc, str, Value::nil());
         vm.pop();
 
         str
     }
 
-    pub(crate) fn from_string(gc: Gc, chars: String) -> *mut Self {
+    pub(crate) fn from_string(gc: Gc, chars: String) -> NonNull<Self> {
         let hash = str_hash(&chars);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
             .strings
             .find_string(&chars, hash);
-        if !interned.is_null() {
-            return interned;
+        match interned {
+            Some(interned) => interned,
+            None => Self::allocate(gc, chars, hash),
         }
-
-        Self::allocate(gc, chars, hash)
     }
 
-    pub(crate) fn from_str(gc: Gc, chars: &str) -> *mut Self {
+    pub(crate) fn from_str(gc: Gc, chars: &str) -> NonNull<Self> {
         let hash = str_hash(chars);
 
         let interned = unsafe { gc.vm.as_mut().unwrap() }
             .strings
             .find_string(chars, hash);
-        if !interned.is_null() {
-            return interned;
+        match interned {
+            Some(interned) => interned,
+            None => Self::allocate(gc, String::from(chars), hash),
         }
-
-        Self::allocate(gc, String::from(chars), hash)
     }
 
-    pub(crate) fn concatenate(gc: Gc, a: *const ObjString, b: *const ObjString) -> *mut ObjString {
-        let a_chars = &unsafe { &*a }.chars;
-        let b_chars = &unsafe { &*b }.chars;
+    pub(crate) fn concatenate(
+        gc: Gc,
+        a: NonNull<ObjString>,
+        b: NonNull<ObjString>,
+    ) -> NonNull<ObjString> {
+        let a_chars = &unsafe { a.as_ref() }.chars;
+        let b_chars = &unsafe { b.as_ref() }.chars;
         let length = a_chars.len() + b_chars.len();
 
         let mut chars = String::with_capacity(length);
@@ -352,18 +357,18 @@ fn str_hash(chars: &str) -> u32 {
 #[repr(C)]
 pub struct ObjUpvalue {
     pub(crate) obj: Obj,
-    pub(crate) location: *mut Value,
+    pub(crate) location: Option<NonNull<Value>>,
     pub(crate) closed: Value,
-    pub(crate) next: *mut ObjUpvalue,
+    pub(crate) next: Option<NonNull<ObjUpvalue>>,
 }
 
 impl ObjUpvalue {
-    pub(crate) fn new(mut gc: Gc, location: *mut Value) -> *mut ObjUpvalue {
-        let upvalue = allocate_obj!(gc, ObjUpvalue, ObjType::Upvalue);
+    pub(crate) fn new(mut gc: Gc, location: Option<NonNull<Value>>) -> NonNull<Self> {
+        let mut upvalue = allocate_obj!(gc, ObjUpvalue, ObjType::Upvalue);
         unsafe {
-            (*upvalue).location = location;
-            (*upvalue).closed = Value::nil();
-            (*upvalue).next = ptr::null_mut();
+            upvalue.as_mut().location = location;
+            upvalue.as_mut().closed = Value::nil();
+            upvalue.as_mut().next = None
         }
         upvalue
     }

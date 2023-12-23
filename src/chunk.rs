@@ -175,7 +175,7 @@ impl Chunk {
         println!("{: <16?} {:04} {}", op, constant, val);
 
         let function = unsafe { self.constants[constant as usize].as_obj::<ObjFunction>() };
-        let upvalue_count = unsafe { function.as_ref().unwrap() }.upvalue_count;
+        let upvalue_count = unsafe { function.as_ref() }.upvalue_count;
         for _ in 0..upvalue_count {
             let is_local = self.code[offset];
             offset += 1;

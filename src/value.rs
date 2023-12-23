@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ptr::NonNull;
 
 use crate::object::{Obj, ObjType};
 
@@ -7,7 +8,7 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    Obj(*mut Obj),
+    Obj(NonNull<Obj>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -37,7 +38,7 @@ impl Value {
         Value::Number(number)
     }
 
-    pub(crate) fn obj(obj: *mut Obj) -> Self {
+    pub(crate) fn obj(obj: NonNull<Obj>) -> Self {
         Value::Obj(obj)
     }
 }
@@ -119,7 +120,7 @@ impl fmt::Display for Value {
             }
             Value::Nil => write!(f, "nil"),
             Value::Number(num) => write!(f, "{}", num),
-            Value::Obj(obj) => write!(f, "{}", unsafe { obj.as_ref().unwrap() }),
+            Value::Obj(obj) => write!(f, "{}", unsafe { obj.as_ref() }),
         }
     }
 }
@@ -148,19 +149,19 @@ impl PartialEq for Value {
 impl Value {
     pub(crate) fn is_obj_type(&self, ty: ObjType) -> bool {
         match self {
-            Value::Obj(obj) => unsafe { obj.as_ref().unwrap() }.r#type == ty,
+            Value::Obj(obj) => unsafe { obj.as_ref() }.r#type == ty,
             _ => false,
         }
     }
 
-    pub(crate) unsafe fn try_obj<T>(&self) -> Option<*mut T> {
+    pub(crate) unsafe fn try_obj<T>(&self) -> Option<NonNull<T>> {
         match self {
-            Value::Obj(obj) => Some((*obj) as *mut T),
+            Value::Obj(obj) => Some(obj.cast::<T>()),
             _ => None,
         }
     }
 
-    pub(crate) unsafe fn as_obj<T>(&self) -> *mut T {
+    pub(crate) unsafe fn as_obj<T>(&self) -> NonNull<T> {
         self.try_obj::<T>().unwrap()
     }
 }
