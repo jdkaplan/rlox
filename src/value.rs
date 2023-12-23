@@ -92,19 +92,11 @@ impl Value {
         }
     }
 
-    pub(crate) fn as_bool(&self) -> bool {
-        self.try_bool().unwrap()
-    }
-
     pub(crate) fn try_number(&self) -> Option<f64> {
         match self {
             Value::Number(f) => Some(*f),
             _ => None,
         }
-    }
-
-    pub(crate) fn as_number(&self) -> f64 {
-        self.try_number().unwrap()
     }
 }
 
@@ -154,7 +146,7 @@ impl Value {
         }
     }
 
-    pub(crate) unsafe fn try_obj<T>(&self) -> Option<NonNull<T>> {
+    pub(crate) fn try_obj<T>(&self) -> Option<NonNull<T>> {
         match self {
             Value::Obj(obj) => Some(obj.cast::<T>()),
             _ => None,

@@ -183,7 +183,7 @@ impl Vm {
     pub(crate) fn call_value(&mut self, callee: Value, argc: usize) -> RuntimeResult<()> {
         let gc = Gc::runtime(self);
 
-        let Some(callee) = (unsafe { callee.try_obj::<Obj>() }) else {
+        let Some(callee) = callee.try_obj::<Obj>() else {
             return Err(self.runtime_error("Can only call functions and classes."));
         };
 
@@ -487,8 +487,8 @@ impl Vm {
         macro_rules! compare_op {
             ($op:expr) => {{
                 if self.peek(0).is_number() && self.peek(1).is_number() {
-                    let b = unsafe { self.pop().as_number() };
-                    let a = unsafe { self.pop().as_number() };
+                    let b = self.pop().try_number().expect("peek");
+                    let a = self.pop().try_number().expect("peek");
                     let v = $op(&a, &b);
                     self.push(Value::bool(v));
                     Ok(())
@@ -501,8 +501,8 @@ impl Vm {
         macro_rules! binary_op {
             ($op:expr) => {{
                 if self.peek(0).is_number() && self.peek(1).is_number() {
-                    let b = unsafe { self.pop().as_number() };
-                    let a = unsafe { self.pop().as_number() };
+                    let b = self.pop().try_number().expect("peek");
+                    let a = self.pop().try_number().expect("peek");
                     let v = $op(a, b);
                     self.push(Value::number(v));
                     Ok(())
@@ -675,7 +675,7 @@ impl Vm {
                     if !self.peek(0).is_number() {
                         return Err(self.runtime_error("Operand must be a number."));
                     }
-                    let a = unsafe { self.pop().as_number() };
+                    let a = self.pop().try_number().expect("peek");
                     self.push(Value::number(-a));
                 }
 
@@ -694,8 +694,8 @@ impl Vm {
                             self.push(Value::obj(res.cast::<Obj>()));
                         }
                     } else if self.peek(0).is_number() && self.peek(1).is_number() {
-                        let b = unsafe { self.pop().as_number() };
-                        let a = unsafe { self.pop().as_number() };
+                        let b = self.pop().try_number().expect("peek");
+                        let a = self.pop().try_number().expect("peek");
                         self.push(Value::number(a + b));
                     } else {
                         return Err(
