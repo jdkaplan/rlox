@@ -111,9 +111,14 @@ impl Gc<'_> {
         self.reallocate(ptr, mem::size_of::<T>(), 0);
     }
 
-    pub(crate) unsafe fn claim(&mut self, mut ptr: NonNull<Obj>) {
-        (ptr.as_mut()).next = self.vm.as_ref().objects;
-        self.vm.as_mut().objects = Some(ptr);
+    pub(crate) fn claim<T>(&mut self, obj: T) -> NonNull<T> {
+        let ptr = NonNull::new(Box::into_raw(Box::new(obj))).unwrap();
+        unsafe {
+            let mut obj = ptr.cast::<Obj>();
+            (obj.as_mut()).next = self.vm.as_ref().objects;
+            self.vm.as_mut().objects = Some(obj);
+        };
+        ptr
     }
 }
 

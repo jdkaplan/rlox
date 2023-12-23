@@ -42,6 +42,14 @@ impl fmt::Display for Obj {
 }
 
 impl Obj {
+    fn new(ty: ObjType) -> Self {
+        Self {
+            r#type: ty,
+            is_marked: false,
+            next: None,
+        }
+    }
+
     pub(crate) fn free(obj: *const Obj, gc: &mut Gc) {
         match unsafe { obj.as_ref().unwrap() }.r#type {
             ObjType::BoundMethod => gc.free(obj as *mut ObjBoundMethod),
@@ -85,22 +93,6 @@ pub enum ObjType {
     Upvalue,
 }
 
-macro_rules! allocate_obj {
-    ($gc:expr, $T:ty, $obj_ty:expr) => {{
-        let null = ::std::ptr::null_mut();
-        let size = ::std::mem::size_of::<$T>();
-        let obj: *mut $T = $gc.reallocate(null, 0, size);
-        unsafe {
-            (*obj).obj.r#type = $obj_ty;
-            (*obj).obj.is_marked = false;
-        }
-
-        let ptr = NonNull::new(obj).unwrap();
-        unsafe { $gc.claim(ptr.cast::<Obj>()) };
-        ptr
-    }};
-}
-
 #[repr(C)]
 pub struct ObjBoundMethod {
     pub(crate) obj: Obj,
@@ -110,12 +102,11 @@ pub struct ObjBoundMethod {
 
 impl ObjBoundMethod {
     pub(crate) fn new(mut gc: Gc, receiver: Value, method: NonNull<ObjClosure>) -> NonNull<Self> {
-        let mut bound = allocate_obj!(gc, ObjBoundMethod, ObjType::BoundMethod);
-        unsafe {
-            bound.as_mut().receiver = receiver;
-            bound.as_mut().method = method;
-        }
-        bound
+        gc.claim(Self {
+            obj: Obj::new(ObjType::BoundMethod),
+            receiver,
+            method,
+        })
     }
 }
 
@@ -133,22 +124,13 @@ pub struct ObjClass {
     pub(crate) methods: Table,
 }
 
-// TODO: ManuallyDrop instead?
-macro_rules! forget_uninit {
-    ($x:expr) => {{
-        let old = ::std::mem::take($x);
-        std::mem::forget(old);
-    }};
-}
-
 impl ObjClass {
     pub(crate) fn new(mut gc: Gc, name: NonNull<ObjString>) -> NonNull<Self> {
-        let mut klass = allocate_obj!(gc, ObjClass, ObjType::Class);
-        unsafe {
-            klass.as_mut().name = name;
-            forget_uninit!(&mut (klass.as_mut()).methods);
-        }
-        klass
+        gc.claim(Self {
+            obj: Obj::new(ObjType::Class),
+            name,
+            methods: Table::default(),
+        })
     }
 }
 
@@ -171,13 +153,11 @@ impl ObjClosure {
         let upvalue_count = unsafe { function.as_ref() }.upvalue_count;
         let upvalues = vec![None; upvalue_count];
 
-        let mut closure = allocate_obj!(gc, ObjClosure, ObjType::Closure);
-        unsafe {
-            closure.as_mut().function = function;
-            forget_uninit!(&mut (closure.as_mut()).upvalues);
-            closure.as_mut().upvalues = upvalues;
-        }
-        closure
+        gc.claim(Self {
+            obj: Obj::new(ObjType::Closure),
+            function,
+            upvalues,
+        })
     }
 }
 
@@ -199,14 +179,13 @@ pub struct ObjFunction {
 
 impl ObjFunction {
     pub(crate) fn new(mut gc: Gc) -> NonNull<Self> {
-        let mut function = allocate_obj!(gc, ObjFunction, ObjType::Function);
-        unsafe {
-            function.as_mut().arity = 0;
-            function.as_mut().upvalue_count = 0;
-            function.as_mut().name = None;
-            forget_uninit!(&mut (function.as_mut()).chunk);
-        }
-        function
+        gc.claim(Self {
+            obj: Obj::new(ObjType::Function),
+            arity: 0,
+            upvalue_count: 0,
+            name: None,
+            chunk: Chunk::default(),
+        })
     }
 
     pub(crate) fn name(&self) -> String {
@@ -238,12 +217,11 @@ pub struct ObjInstance {
 
 impl ObjInstance {
     pub(crate) fn new(mut gc: Gc, klass: NonNull<ObjClass>) -> NonNull<Self> {
-        let mut instance = allocate_obj!(gc, ObjInstance, ObjType::Instance);
-        unsafe {
-            instance.as_mut().klass = klass;
-            forget_uninit!(&mut (instance.as_mut()).fields);
-        }
-        instance
+        gc.claim(Self {
+            obj: Obj::new(ObjType::Instance),
+            klass,
+            fields: Table::default(),
+        })
     }
 }
 
@@ -265,9 +243,10 @@ pub struct ObjNative {
 
 impl ObjNative {
     pub(crate) fn new(mut gc: Gc, func: NativeFn) -> NonNull<Self> {
-        let mut native = allocate_obj!(gc, ObjNative, ObjType::Native);
-        unsafe { native.as_mut().r#fn = func };
-        native
+        gc.claim(Self {
+            obj: Obj::new(ObjType::Native),
+            r#fn: func,
+        })
     }
 }
 
@@ -287,12 +266,11 @@ impl fmt::Display for ObjString {
 
 impl ObjString {
     pub(crate) fn allocate(mut gc: Gc, chars: String, hash: u32) -> NonNull<Self> {
-        let mut str = allocate_obj!(gc, ObjString, ObjType::String);
-        unsafe {
-            forget_uninit!(&mut (str.as_mut()).chars);
-            str.as_mut().chars = chars;
-            str.as_mut().hash = hash;
-        }
+        let str = gc.claim(Self {
+            obj: Obj::new(ObjType::String),
+            chars,
+            hash,
+        });
 
         // GC: Ensure `str` is reachable temporarily in case resizing the table
         // triggers garbage collection.
@@ -360,13 +338,12 @@ pub struct ObjUpvalue {
 
 impl ObjUpvalue {
     pub(crate) fn new(mut gc: Gc, location: Option<NonNull<Value>>) -> NonNull<Self> {
-        let mut upvalue = allocate_obj!(gc, ObjUpvalue, ObjType::Upvalue);
-        unsafe {
-            upvalue.as_mut().location = location;
-            upvalue.as_mut().closed = Value::nil();
-            upvalue.as_mut().next = None
-        }
-        upvalue
+        gc.claim(Self {
+            obj: Obj::new(ObjType::Upvalue),
+            location,
+            closed: Value::nil(),
+            next: None,
+        })
     }
 }
 
