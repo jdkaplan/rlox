@@ -23,9 +23,9 @@ pub struct Gc<'compiler> {
 }
 
 impl<'compiler> Gc<'compiler> {
-    pub(crate) fn comptime(compiler: Option<NonNull<Compiler<'compiler>>>, vm: &mut Vm) -> Self {
+    pub(crate) fn comptime(compiler: NonNull<Compiler<'compiler>>, vm: &mut Vm) -> Self {
         Self {
-            compiler,
+            compiler: Some(compiler),
             vm: NonNull::from(vm),
             can_gc: true,
         }

@@ -24,7 +24,7 @@ pub struct Parser<'source> {
     previous: Token<'source>,
 
     scanner: Scanner<'source>,
-    compiler: Option<NonNull<Compiler<'source>>>,
+    compiler: NonNull<Compiler<'source>>,
     klass: Option<NonNull<ClassCompiler>>,
 
     had_error: bool,
@@ -102,30 +102,29 @@ pub struct Upvalue {
 
 pub(crate) fn compile(vm: &mut Vm, source: &str) -> CompileResult<NonNull<ObjFunction>> {
     let scanner = Scanner::new(source);
-    let mut parser = Parser::new(scanner, vm);
-
-    parser.start_compiler(FunctionMode::Script);
+    let mut parser = Parser::new(scanner, vm, FunctionMode::Script);
 
     while !parser.match_(TokenType::Eof) {
         parser.declaration();
     }
 
-    let fun = parser.end_compiler();
-    if parser.had_error {
-        Err(CompileError)
-    } else {
-        Ok(fun)
-    }
+    parser.finish()
 }
 
 impl<'source> Parser<'source> {
-    pub(crate) fn new(scanner: Scanner<'source>, vm: &'source mut Vm) -> Self {
+    pub(crate) fn new(scanner: Scanner<'source>, vm: &'source mut Vm, mode: FunctionMode) -> Self {
+        let gc = Gc::boot(vm);
+        let function = ObjFunction::new(gc);
+
+        let compiler = Compiler::new(None, function, mode);
+        let compiler = NonNull::new(Box::into_raw(Box::new(compiler))).unwrap();
+
         let mut parser = Self {
             // Will be overwritten by the immediate call to advance.
             current: Token::default(),
             previous: Token::default(),
 
-            compiler: None,
+            compiler,
             klass: None,
 
             had_error: false,
@@ -142,16 +141,24 @@ impl<'source> Parser<'source> {
         let gc = Gc::comptime(self.compiler, self.vm);
         let function = ObjFunction::new(gc);
 
-        let compiler = Compiler::new(self.compiler, function, mode);
+        let compiler = Compiler::new(Some(self.compiler), function, mode);
+        self.compiler = NonNull::new(Box::into_raw(Box::new(compiler))).unwrap();
+    }
 
-        self.compiler = NonNull::new(Box::into_raw(Box::new(compiler)));
+    pub(crate) fn finish(mut self) -> CompileResult<NonNull<ObjFunction>> {
+        let function = self.end_compiler();
+
+        if self.had_error {
+            Err(CompileError)
+        } else {
+            Ok(function)
+        }
     }
 
     pub(crate) fn end_compiler(&mut self) -> NonNull<ObjFunction> {
         self.emit_return();
 
-        let mut compiler =
-            unsafe { Box::from_raw(self.compiler.expect("start_compiler called first").as_ptr()) };
+        let mut compiler = unsafe { Box::from_raw(self.compiler.as_ptr()) };
         let function = unsafe { compiler.function.as_mut() };
 
         #[cfg(feature = "print_code")]
@@ -159,7 +166,11 @@ impl<'source> Parser<'source> {
             self.current_chunk().disassemble(&function.name());
         }
 
-        self.compiler = compiler.enclosing;
+        // If this was the top-level compiler, there is no enclosing one, and the Parser is going
+        // to immediately stop being used. So the dangling pointer here will never be dereferenced.
+        //
+        // TODO: Refactor so the last compiler-pop doesn't need to set this field at all.
+        self.compiler = compiler.enclosing.unwrap_or(NonNull::dangling());
         NonNull::new(function).unwrap()
     }
 
@@ -260,7 +271,7 @@ impl<'source> Parser<'source> {
 
 impl Parser<'_> {
     pub(crate) fn current_chunk(&mut self) -> &mut Chunk {
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         let function = unsafe { compiler.function.as_mut() };
         &mut function.chunk
     }
@@ -314,7 +325,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn emit_return(&mut self) {
-        if unsafe { self.compiler.unwrap().as_mut() }.mode == FunctionMode::Initializer {
+        if unsafe { self.compiler.as_mut() }.mode == FunctionMode::Initializer {
             self.emit_bytes(Opcode::GetLocal, 0);
         } else {
             self.emit_byte(Opcode::Nil);
@@ -341,12 +352,12 @@ impl Parser<'_> {
 
 impl<'source> Parser<'source> {
     pub(crate) fn scope_begin(&mut self) {
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         compiler.scope_depth += 1;
     }
 
     pub(crate) fn scope_end(&mut self) {
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         compiler.scope_depth -= 1;
 
         // TODO: OP_POP_N/OP_CLOSE_UPVALUE_N is a good optimization here.
@@ -368,12 +379,12 @@ impl<'source> Parser<'source> {
     }
 
     pub(crate) fn add_local<'token: 'source>(&mut self, name: Token<'token>) {
-        if unsafe { self.compiler.unwrap().as_mut() }.locals.len() == U8_COUNT {
+        if unsafe { self.compiler.as_mut() }.locals.len() == U8_COUNT {
             self.error("Too many local variables in function.");
             return;
         }
 
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         compiler.locals.push(Local {
             name,
             depth: None, // declared: reserved without value
@@ -494,7 +505,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn declare_variable(&mut self) {
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         if compiler.scope_depth == 0 {
             // Globals are late-bound and don't have a location on the stack.
             return;
@@ -518,7 +529,7 @@ impl Parser<'_> {
 
         self.declare_variable();
 
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         if compiler.scope_depth > 0 {
             return 0;
         }
@@ -528,7 +539,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn define_variable(&mut self, global: u8) {
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
         if compiler.scope_depth > 0 {
             compiler.mark_initialized();
             // No runtime code to execute! The value is already in the stack slot.
@@ -630,7 +641,7 @@ impl Parser<'_> {
         let op_get: Opcode;
         let op_set: Opcode;
 
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
 
         if let Some(arg) = self.resolve_local(compiler, name) {
             slot = arg as u8;
@@ -960,7 +971,7 @@ impl Parser<'_> {
         let global = self.parse_variable("Expect function name.");
 
         // Allow the function's name to be used within its body to support recursion.
-        (unsafe { self.compiler.unwrap().as_mut() }).mark_initialized();
+        (unsafe { self.compiler.as_mut() }).mark_initialized();
 
         self.function(FunctionMode::Function);
 
@@ -1095,7 +1106,7 @@ impl Parser<'_> {
     }
 
     pub(crate) fn stmt_return(&mut self) {
-        let mode = unsafe { self.compiler.unwrap().as_ref() }.mode;
+        let mode = unsafe { self.compiler.as_ref() }.mode;
         if mode == FunctionMode::Script {
             self.error("Can't return from top-level code.");
         }
@@ -1149,7 +1160,7 @@ impl Parser<'_> {
 
         let gc = Gc::comptime(self.compiler, self.vm);
 
-        let compiler = unsafe { self.compiler.unwrap().as_mut() };
+        let compiler = unsafe { self.compiler.as_mut() };
 
         let function = unsafe { compiler.function.as_mut() };
         if mode != FunctionMode::Script {
