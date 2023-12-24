@@ -57,7 +57,7 @@ macro_rules! debug_log_gc {
 
 // TODO: This part feels more like an Alloc
 impl Gc<'_> {
-    pub fn reallocate<T>(&mut self, ptr: *mut T, old: usize, new: usize) -> *mut T {
+    fn reallocate<T>(&mut self, ptr: *mut T, old: usize, new: usize) -> *mut T {
         // bytes = bytes - old + new; // but avoiding overflow
         let vm = unsafe { self.vm.as_mut() };
         if new >= old {
@@ -91,27 +91,28 @@ impl Gc<'_> {
         new_ptr
     }
 
-    #[allow(unused)]
-    fn resize_array<T>(&mut self, ptr: *mut T, old_cap: usize, new_cap: usize) -> *mut T {
-        let old = mem::size_of::<T>() * old_cap;
-        let new = mem::size_of::<T>() * new_cap;
-        self.reallocate(ptr, old, new)
-    }
-
-    #[allow(unused)]
-    pub(crate) fn free_objects(&mut self, mut root: Option<NonNull<Obj>>) {
-        while let Some(current) = root {
-            let next = unsafe { current.as_ref().next };
-            Obj::free(current, self);
-            root = next;
-        }
-    }
-
     pub(crate) fn free<T>(&mut self, ptr: NonNull<T>) {
         self.reallocate(ptr.as_ptr(), mem::size_of::<T>(), 0);
     }
 
     pub(crate) fn claim<T>(&mut self, obj: T) -> NonNull<T> {
+        // bytes = bytes - old + new; // but avoiding overflow
+        let vm = unsafe { self.vm.as_mut() };
+        vm.bytes_allocated += mem::size_of::<T>();
+
+        #[cfg(feature = "stress_gc")]
+        if self.can_gc {
+            debug_log_gc!("-- gc stress");
+            self.collect_garbage();
+        }
+
+        let vm = unsafe { self.vm.as_mut() };
+        if self.can_gc && vm.bytes_allocated > vm.next_gc {
+            debug_log_gc!("-- gc now: {} > {}", vm.bytes_allocated, vm.next_gc);
+
+            self.collect_garbage();
+        }
+
         let ptr = NonNull::new(Box::into_raw(Box::new(obj))).unwrap();
         unsafe {
             let mut obj = ptr.cast::<Obj>();
@@ -342,7 +343,7 @@ impl Gc<'_> {
             }
 
             // ... and free it.
-            self.free(unreachable);
+            Obj::free(unreachable, self)
         }
     }
 }
