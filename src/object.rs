@@ -1,6 +1,6 @@
-use std::fmt;
 use std::num::Wrapping;
 use std::ptr::NonNull;
+use std::{fmt, mem};
 
 use crate::alloc::Gc;
 use crate::chunk::Chunk;
@@ -20,21 +20,21 @@ impl fmt::Display for Obj {
         unsafe {
             match self.r#type {
                 ObjType::BoundMethod => {
-                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjBoundMethod>(self))
+                    write!(f, "{}", mem::transmute::<&Obj, &ObjBoundMethod>(self))
                 }
 
-                ObjType::Class => write!(f, "{}", std::mem::transmute::<&Obj, &ObjClass>(self)),
+                ObjType::Class => write!(f, "{}", mem::transmute::<&Obj, &ObjClass>(self)),
                 ObjType::Closure => {
-                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjClosure>(self))
+                    write!(f, "{}", mem::transmute::<&Obj, &ObjClosure>(self))
                 }
                 ObjType::Function => {
-                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjFunction>(self))
+                    write!(f, "{}", mem::transmute::<&Obj, &ObjFunction>(self))
                 }
                 ObjType::Instance => {
-                    write!(f, "{}", std::mem::transmute::<&Obj, &ObjInstance>(self))
+                    write!(f, "{}", mem::transmute::<&Obj, &ObjInstance>(self))
                 }
                 ObjType::Native => write!(f, "<native fn>"),
-                ObjType::String => write!(f, "{}", std::mem::transmute::<&Obj, &ObjString>(self)),
+                ObjType::String => write!(f, "{}", mem::transmute::<&Obj, &ObjString>(self)),
                 ObjType::Upvalue => write!(f, "upvalue"),
             }
         }
@@ -50,32 +50,32 @@ impl Obj {
         }
     }
 
-    pub(crate) fn free(obj: *const Obj, gc: &mut Gc) {
-        match unsafe { obj.as_ref().unwrap() }.r#type {
-            ObjType::BoundMethod => gc.free(obj as *mut ObjBoundMethod),
+    pub(crate) fn free(obj: NonNull<Obj>, gc: &mut Gc) {
+        match unsafe { obj.as_ref() }.r#type {
+            ObjType::BoundMethod => gc.free(obj.cast::<ObjBoundMethod>()),
             ObjType::Class => {
-                let klass = obj as *mut ObjClass;
-                std::mem::take(&mut unsafe { &mut *klass }.methods);
+                let mut klass = obj.cast::<ObjClass>();
+                mem::take(&mut unsafe { klass.as_mut() }.methods);
                 gc.free(klass)
             }
-            ObjType::Closure => gc.free(obj as *mut ObjClosure),
+            ObjType::Closure => gc.free(obj.cast::<ObjClosure>()),
             ObjType::Function => {
-                let function = obj as *mut ObjFunction;
-                std::mem::take(&mut unsafe { function.as_mut().unwrap() }.chunk);
+                let mut function = obj.cast::<ObjFunction>();
+                mem::take(&mut unsafe { function.as_mut() }.chunk);
                 gc.free(function)
             }
             ObjType::Instance => {
-                let instance = obj as *mut ObjInstance;
-                std::mem::take(&mut unsafe { &mut *instance }.fields);
+                let mut instance = obj.cast::<ObjInstance>();
+                mem::take(&mut unsafe { instance.as_mut() }.fields);
                 gc.free(instance)
             }
-            ObjType::Native => gc.free(obj as *mut ObjNative),
+            ObjType::Native => gc.free(obj.cast::<ObjNative>()),
             ObjType::String => {
-                let str = obj as *mut ObjString;
-                std::mem::take(&mut unsafe { &mut *str }.chars);
+                let mut str = obj.cast::<ObjString>();
+                mem::take(&mut unsafe { str.as_mut() }.chars);
                 gc.free(str)
             }
-            ObjType::Upvalue => gc.free(obj as *mut ObjUpvalue),
+            ObjType::Upvalue => gc.free(obj.cast::<ObjUpvalue>()),
         }
     }
 }
@@ -233,7 +233,7 @@ impl fmt::Display for ObjInstance {
     }
 }
 
-pub type NativeFn = fn(argc: usize, argv: *const Value) -> Value;
+pub type NativeFn = fn(argc: usize, argv: NonNull<Value>) -> Value;
 
 #[repr(C)]
 pub struct ObjNative {

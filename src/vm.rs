@@ -27,7 +27,7 @@ pub type RuntimeResult<T> = Result<T, RuntimeError>;
 #[error("runtime error")]
 pub struct RuntimeError;
 
-pub fn clock_native(_argc: usize, _argv: *const Value) -> Value {
+pub fn clock_native(_argc: usize, _argv: NonNull<Value>) -> Value {
     Value::number(clock().as_secs_f64())
 }
 
@@ -166,14 +166,15 @@ impl Vm {
         self.stack[last - offset] = value;
     }
 
-    pub(crate) fn sp(&mut self, offset: usize) -> *mut Value {
+    pub(crate) fn sp(&mut self, offset: usize) -> NonNull<Value> {
         let base = self.stack.as_mut_ptr();
-        unsafe { base.add(self.stack.len() - offset) }
+        let ptr = unsafe { base.add(self.stack.len() - offset) };
+        NonNull::new(ptr).unwrap()
     }
 
-    pub(crate) fn set_sp(&mut self, sp: *mut Value) {
+    pub(crate) fn set_sp(&mut self, sp: NonNull<Value>) {
         let top = self.sp(0);
-        let n = unsafe { top.offset_from(sp) as usize };
+        let n = unsafe { top.as_ptr().offset_from(sp.as_ptr()) as usize };
         self.popn(n);
     }
 }
@@ -291,7 +292,7 @@ impl Vm {
             closure,
             ip: 0,
             // Subtract an extra slot for stack slot zero (which contains the caller).
-            slots: NonNull::new(self.sp(argc + 1)).unwrap(),
+            slots: self.sp(argc + 1),
         };
         self.frames.push(frame);
 
@@ -355,7 +356,7 @@ impl Vm {
 
 // Upvalues
 impl Vm {
-    pub(crate) fn capture_upvalue(&mut self, local: *mut Value) -> *mut ObjUpvalue {
+    pub(crate) fn capture_upvalue(&mut self, local: NonNull<Value>) -> NonNull<ObjUpvalue> {
         // Keep the list sorted by pointer value for early exits to searches.
         //
         // `prev` will be the node just before the one we want.
@@ -368,7 +369,7 @@ impl Vm {
             let Some(location) = unsafe { current.as_ref() }.location else {
                 break;
             };
-            if location.as_ptr() <= local {
+            if location <= local {
                 break;
             }
 
@@ -378,31 +379,31 @@ impl Vm {
 
         if let Some(current) = upvalue {
             let location = unsafe { current.as_ref() }.location.unwrap();
-            if location.as_ptr() == local {
-                return current.as_ptr();
+            if location == local {
+                return current;
             }
         }
 
         let gc = Gc::runtime(self);
 
         // Linked-list insert between `prev` and `upvalue` (next).
-        let mut created = ObjUpvalue::new(gc, NonNull::new(local));
+        let mut created = ObjUpvalue::new(gc, Some(local));
         unsafe { created.as_mut() }.next = upvalue;
         if let Some(mut prev) = prev {
             unsafe { prev.as_mut() }.next = Some(created);
         } else {
             self.open_upvalues = Some(created);
         }
-        created.as_ptr()
+        created
     }
 
-    pub(crate) fn close_upvalues(&mut self, last: *mut Value) {
+    pub(crate) fn close_upvalues(&mut self, last: NonNull<Value>) {
         while let Some(mut upvalue) = self.open_upvalues {
             let upvalue = unsafe { upvalue.as_mut() };
             let Some(location) = upvalue.location else {
                 break;
             };
-            if location.as_ptr() < last {
+            if location < last {
                 break;
             };
 
@@ -763,11 +764,10 @@ impl Vm {
                         let index = read_byte!();
 
                         if is_local != 0 {
-                            unsafe {
-                                closure.as_mut().upvalues[i] = NonNull::new(self.capture_upvalue(
-                                    frame.as_ref().slots.as_ptr().add(index as usize),
-                                ))
-                            };
+                            let slot = unsafe { frame.as_ref().slots.as_ptr().add(index as usize) };
+                            let slot = NonNull::new(slot).unwrap();
+                            unsafe { closure.as_mut() }.upvalues[i] =
+                                Some(self.capture_upvalue(slot));
                         } else {
                             unsafe {
                                 closure.as_mut().upvalues[i] =
@@ -783,7 +783,7 @@ impl Vm {
                 }
                 Opcode::Return => {
                     let res = self.pop();
-                    self.close_upvalues(unsafe { frame.as_ref() }.slots.as_ptr());
+                    self.close_upvalues(unsafe { frame.as_ref() }.slots);
 
                     self.frames.pop();
                     if self.frames.is_empty() {
@@ -791,7 +791,7 @@ impl Vm {
                         return Ok(());
                     }
 
-                    self.set_sp(unsafe { frame.as_ref().slots.as_ptr() });
+                    self.set_sp(unsafe { frame.as_ref().slots });
                     self.push(res);
                     frame = last_frame!();
                 }

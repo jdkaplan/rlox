@@ -102,13 +102,13 @@ impl Gc<'_> {
     pub(crate) fn free_objects(&mut self, mut root: Option<NonNull<Obj>>) {
         while let Some(current) = root {
             let next = unsafe { current.as_ref().next };
-            Obj::free(current.as_ptr(), self);
+            Obj::free(current, self);
             root = next;
         }
     }
 
-    pub(crate) fn free<T>(&mut self, ptr: *mut T) {
-        self.reallocate(ptr, mem::size_of::<T>(), 0);
+    pub(crate) fn free<T>(&mut self, ptr: NonNull<T>) {
+        self.reallocate(ptr.as_ptr(), mem::size_of::<T>(), 0);
     }
 
     pub(crate) fn claim<T>(&mut self, obj: T) -> NonNull<T> {
@@ -342,7 +342,7 @@ impl Gc<'_> {
             }
 
             // ... and free it.
-            self.free(unreachable.as_ptr());
+            self.free(unreachable);
         }
     }
 }
