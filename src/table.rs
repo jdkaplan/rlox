@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::alloc::Gc;
+use crate::gc::Gc;
 use crate::object::ObjString;
 use crate::value::Value;
 

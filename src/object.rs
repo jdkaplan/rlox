@@ -1,11 +1,20 @@
+use std::fmt;
+use std::mem;
 use std::num::Wrapping;
 use std::ptr::NonNull;
-use std::{fmt, mem};
 
-use crate::alloc::Gc;
 use crate::chunk::Chunk;
+use crate::gc::Gc;
+use crate::heap::HeapObj;
 use crate::table::Table;
 use crate::value::Value;
+
+macro_rules! heap_alloc {
+    ($gc:expr, $obj:expr) => {{
+        crate::gc::Gc::<'_>::_run_collection(&mut $gc);
+        crate::gc::Gc::<'_>::_claim(&mut $gc, Box::new($obj))
+    }};
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -50,34 +59,55 @@ impl Obj {
         }
     }
 
-    pub(crate) fn free(obj: NonNull<Obj>, gc: &mut Gc) {
+    pub(crate) fn free(obj: NonNull<Obj>) -> usize {
         match unsafe { obj.as_ref() }.ty {
-            ObjType::BoundMethod => gc.free(obj.cast::<ObjBoundMethod>()),
+            ObjType::BoundMethod => _free(obj.cast::<ObjBoundMethod>()),
+
             ObjType::Class => {
                 let mut klass = obj.cast::<ObjClass>();
                 mem::take(&mut unsafe { klass.as_mut() }.methods);
-                gc.free(klass)
+                _free(klass)
             }
-            ObjType::Closure => gc.free(obj.cast::<ObjClosure>()),
+
+            ObjType::Closure => _free(obj.cast::<ObjClosure>()),
+
             ObjType::Function => {
                 let mut function = obj.cast::<ObjFunction>();
                 mem::take(&mut unsafe { function.as_mut() }.chunk);
-                gc.free(function)
+                _free(function)
             }
+
             ObjType::Instance => {
                 let mut instance = obj.cast::<ObjInstance>();
                 mem::take(&mut unsafe { instance.as_mut() }.fields);
-                gc.free(instance)
+                _free(instance)
             }
-            ObjType::Native => gc.free(obj.cast::<ObjNative>()),
+
+            ObjType::Native => _free(obj.cast::<ObjNative>()),
+
             ObjType::String => {
                 let mut str = obj.cast::<ObjString>();
                 mem::take(&mut unsafe { str.as_mut() }.chars);
-                gc.free(str)
+                _free(str)
             }
-            ObjType::Upvalue => gc.free(obj.cast::<ObjUpvalue>()),
+
+            ObjType::Upvalue => _free(obj.cast::<ObjUpvalue>()),
         }
     }
+}
+
+fn _free<T>(ptr: NonNull<T>) -> usize {
+    debug_log_gc!(
+        "free: {:?} {} as {:?}",
+        ptr,
+        mem::size_of::<T>(),
+        std::any::type_name::<T>()
+    );
+
+    let layout = std::alloc::Layout::new::<T>();
+    unsafe { std::alloc::dealloc(ptr.as_ptr() as *mut u8, layout) };
+
+    mem::size_of::<T>()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -100,13 +130,18 @@ pub struct ObjBoundMethod {
     pub(crate) method: NonNull<ObjClosure>,
 }
 
+unsafe impl HeapObj for ObjBoundMethod {}
+
 impl ObjBoundMethod {
     pub(crate) fn new(mut gc: Gc, receiver: Value, method: NonNull<ObjClosure>) -> NonNull<Self> {
-        gc.claim(Self {
-            obj: Obj::new(ObjType::BoundMethod),
-            receiver,
-            method,
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::BoundMethod),
+                receiver,
+                method,
+            }
+        )
     }
 }
 
@@ -124,13 +159,18 @@ pub struct ObjClass {
     pub(crate) methods: Table,
 }
 
+unsafe impl HeapObj for ObjClass {}
+
 impl ObjClass {
     pub(crate) fn new(mut gc: Gc, name: NonNull<ObjString>) -> NonNull<Self> {
-        gc.claim(Self {
-            obj: Obj::new(ObjType::Class),
-            name,
-            methods: Table::default(),
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::Class),
+                name,
+                methods: Table::default(),
+            }
+        )
     }
 }
 
@@ -148,16 +188,21 @@ pub struct ObjClosure {
     pub(crate) upvalues: Vec<Option<NonNull<ObjUpvalue>>>,
 }
 
+unsafe impl HeapObj for ObjClosure {}
+
 impl ObjClosure {
     pub(crate) fn new(mut gc: Gc, function: NonNull<ObjFunction>) -> NonNull<Self> {
         let upvalue_count = unsafe { function.as_ref() }.upvalue_count;
         let upvalues = vec![None; upvalue_count];
 
-        gc.claim(Self {
-            obj: Obj::new(ObjType::Closure),
-            function,
-            upvalues,
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::Closure),
+                function,
+                upvalues,
+            }
+        )
     }
 }
 
@@ -177,15 +222,20 @@ pub struct ObjFunction {
     pub(crate) name: Option<NonNull<ObjString>>,
 }
 
+unsafe impl HeapObj for ObjFunction {}
+
 impl ObjFunction {
     pub(crate) fn new(mut gc: Gc) -> NonNull<Self> {
-        gc.claim(Self {
-            obj: Obj::new(ObjType::Function),
-            arity: 0,
-            upvalue_count: 0,
-            name: None,
-            chunk: Chunk::default(),
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::Function),
+                arity: 0,
+                upvalue_count: 0,
+                name: None,
+                chunk: Chunk::default(),
+            }
+        )
     }
 
     pub(crate) fn name(&self) -> String {
@@ -215,13 +265,18 @@ pub struct ObjInstance {
     pub(crate) fields: Table,
 }
 
+unsafe impl HeapObj for ObjInstance {}
+
 impl ObjInstance {
     pub(crate) fn new(mut gc: Gc, klass: NonNull<ObjClass>) -> NonNull<Self> {
-        gc.claim(Self {
-            obj: Obj::new(ObjType::Instance),
-            klass,
-            fields: Table::default(),
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::Instance),
+                klass,
+                fields: Table::default(),
+            }
+        )
     }
 }
 
@@ -241,12 +296,17 @@ pub struct ObjNative {
     pub(crate) func: NativeFn,
 }
 
+unsafe impl HeapObj for ObjNative {}
+
 impl ObjNative {
     pub(crate) fn new(mut gc: Gc, func: NativeFn) -> NonNull<Self> {
-        gc.claim(Self {
-            obj: Obj::new(ObjType::Native),
-            func,
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::Native),
+                func,
+            }
+        )
     }
 }
 
@@ -258,6 +318,8 @@ pub struct ObjString {
     pub(crate) hash: u32,
 }
 
+unsafe impl HeapObj for ObjString {}
+
 impl fmt::Display for ObjString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.chars)
@@ -266,17 +328,20 @@ impl fmt::Display for ObjString {
 
 impl ObjString {
     pub(crate) fn allocate(mut gc: Gc, chars: String, hash: u32) -> NonNull<Self> {
-        let str = gc.claim(Self {
-            obj: Obj::new(ObjType::String),
-            chars,
-            hash,
-        });
+        let str = heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::String),
+                chars,
+                hash,
+            }
+        );
 
         // GC: Ensure `str` is reachable temporarily in case resizing the table
         // triggers garbage collection.
         let vm = unsafe { gc.vm.as_mut() };
         vm.push(Value::obj(str.cast::<Obj>()));
-        vm.strings.set(gc, str, Value::nil());
+        vm.heap.strings.set(gc, str, Value::nil());
         vm.pop();
 
         str
@@ -285,7 +350,10 @@ impl ObjString {
     pub(crate) fn from_string(mut gc: Gc, chars: String) -> NonNull<Self> {
         let hash = str_hash(&chars);
 
-        let interned = unsafe { gc.vm.as_mut() }.strings.find_string(&chars, hash);
+        let interned = unsafe { gc.vm.as_mut() }
+            .heap
+            .strings
+            .find_string(&chars, hash);
         match interned {
             Some(interned) => interned,
             None => Self::allocate(gc, chars, hash),
@@ -295,7 +363,10 @@ impl ObjString {
     pub(crate) fn from_str(mut gc: Gc, chars: &str) -> NonNull<Self> {
         let hash = str_hash(chars);
 
-        let interned = unsafe { gc.vm.as_mut() }.strings.find_string(chars, hash);
+        let interned = unsafe { gc.vm.as_mut() }
+            .heap
+            .strings
+            .find_string(chars, hash);
         match interned {
             Some(interned) => interned,
             None => Self::allocate(gc, String::from(chars), hash),
@@ -336,14 +407,19 @@ pub struct ObjUpvalue {
     pub(crate) next: Option<NonNull<ObjUpvalue>>,
 }
 
+unsafe impl HeapObj for ObjUpvalue {}
+
 impl ObjUpvalue {
     pub(crate) fn new(mut gc: Gc, location: Option<NonNull<Value>>) -> NonNull<Self> {
-        gc.claim(Self {
-            obj: Obj::new(ObjType::Upvalue),
-            location,
-            closed: Value::nil(),
-            next: None,
-        })
+        heap_alloc!(
+            gc,
+            Self {
+                obj: Obj::new(ObjType::Upvalue),
+                location,
+                closed: Value::nil(),
+                next: None,
+            }
+        )
     }
 }
 

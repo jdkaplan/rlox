@@ -1,10 +1,15 @@
+use std::mem;
 use std::ptr::{addr_of_mut, NonNull};
 use std::time::Duration;
 
-use crate::alloc::Gc;
 use crate::chunk::Opcode;
 use crate::compiler::{compile, CompileError};
-use crate::object::{NativeFn, Obj, ObjClosure, ObjNative, ObjString, ObjType, ObjUpvalue, *};
+use crate::gc::Gc;
+use crate::heap::Heap;
+use crate::object::{
+    NativeFn, Obj, ObjBoundMethod, ObjClass, ObjClosure, ObjFunction, ObjInstance, ObjNative,
+    ObjString, ObjType, ObjUpvalue,
+};
 use crate::table::Table;
 use crate::value::Value;
 use crate::{FRAMES_MAX, STACK_MAX};
@@ -33,7 +38,7 @@ pub fn clock_native(_argc: usize, _argv: NonNull<Value>) -> Value {
 
 fn clock() -> Duration {
     let tp = unsafe {
-        let mut tp = std::mem::MaybeUninit::uninit();
+        let mut tp = mem::MaybeUninit::uninit();
         if libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, tp.as_mut_ptr()) != 0 {
             panic!("clock: {}", std::io::Error::last_os_error());
         }
@@ -53,22 +58,14 @@ pub struct CallFrame {
 #[repr(C)]
 pub struct Vm {
     pub(crate) frames: Vec<CallFrame>,
-
     pub(crate) stack: Vec<Value>,
 
     pub(crate) globals: Table,
-
-    pub(crate) strings: Table,
-    pub(crate) init_string: NonNull<ObjString>,
-
     pub(crate) open_upvalues: Option<NonNull<ObjUpvalue>>,
 
-    pub(crate) objects: Option<NonNull<Obj>>,
+    pub(crate) init_string: NonNull<ObjString>,
 
-    pub(crate) gc_pending: Vec<NonNull<Obj>>,
-
-    pub(crate) bytes_allocated: usize,
-    pub(crate) next_gc: usize,
+    pub(crate) heap: Heap,
 }
 
 impl Default for Vm {
@@ -85,21 +82,13 @@ impl Vm {
             frames: Vec::with_capacity(FRAMES_MAX),
             open_upvalues: None,
 
-            bytes_allocated: 0,
-            next_gc: 0,
-
-            gc_pending: Vec::new(),
-
             globals: Table::new(),
-            strings: Table::new(),
 
             // Will be immediately overwritten before ever being read.
             init_string: NonNull::dangling(),
 
-            objects: None,
+            heap: Heap::new(),
         };
-
-        vm.next_gc = 1024 * 1024;
 
         // The boot Gc skips garbage collection. This ensures that vm.init_string is never
         // dereferenced to mark as reachable.
@@ -825,5 +814,33 @@ impl Vm {
                 }
             }
         }
+    }
+}
+
+impl Vm {
+    pub(crate) fn mark_roots(&mut self) {
+        debug_log_gc!("---- mark slots");
+        for value in &self.stack {
+            self.heap.mark_value(*value);
+        }
+
+        debug_log_gc!("---- mark frames");
+        for frame in &mut self.frames {
+            let obj = frame.closure.cast::<Obj>();
+            self.heap.mark_obj(obj);
+        }
+
+        debug_log_gc!("---- mark upvalues");
+        let mut upvalue = self.open_upvalues;
+        while let Some(current) = upvalue {
+            self.heap.mark_obj(current.cast::<Obj>());
+            upvalue = unsafe { current.as_ref() }.next;
+        }
+
+        debug_log_gc!("---- mark globals");
+        self.heap.mark_table(&mut self.globals);
+
+        debug_log_gc!("---- mark init string");
+        self.heap.mark_obj(self.init_string.cast::<Obj>());
     }
 }

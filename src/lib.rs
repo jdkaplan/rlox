@@ -1,6 +1,14 @@
-mod alloc;
+macro_rules! debug_log_gc {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "log_gc")]
+        println!($($arg)*);
+    }};
+}
+
 mod chunk;
 mod compiler;
+mod gc;
+mod heap;
 mod object;
 mod scanner;
 mod table;

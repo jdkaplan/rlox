@@ -3,8 +3,9 @@ use std::ptr::NonNull;
 
 use once_cell::sync::Lazy;
 
-use crate::alloc::Gc;
 use crate::chunk::{Chunk, Opcode};
+use crate::gc::Gc;
+use crate::heap::Heap;
 use crate::object::{Obj, ObjFunction, ObjString};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::value::Value;
@@ -67,6 +68,13 @@ impl<'compiler> Compiler<'compiler> {
         // Reserve stack slot zero for the currently executing function.
         compiler.reserve_self_slot();
         compiler
+    }
+
+    pub(crate) fn mark_roots(mut this: Option<NonNull<Self>>, heap: &mut Heap) {
+        while let Some(mut compiler) = this {
+            heap.mark_obj(unsafe { compiler.as_mut() }.function.cast::<Obj>());
+            this = unsafe { compiler.as_ref() }.enclosing;
+        }
     }
 }
 

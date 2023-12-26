@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::alloc::Gc;
+use crate::gc::Gc;
 use crate::object::ObjFunction;
 use crate::value::Value;
 
