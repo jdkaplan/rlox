@@ -1,7 +1,7 @@
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct Token<'a> {
-    pub(crate) r#type: TokenType,
+    pub(crate) ty: TokenType,
     pub(crate) text: &'a str,
     pub(crate) line: usize,
 }
@@ -14,11 +14,7 @@ impl Token<'_> {
             _ => unreachable!(),
         };
 
-        Self {
-            r#type: ty,
-            line: 0,
-            text,
-        }
+        Self { ty, line: 0, text }
     }
 
     pub(crate) fn text(&self) -> &str {
@@ -321,7 +317,7 @@ impl<'source> Scanner<'source> {
         let text = &self.source[self.start..self.current];
 
         Token {
-            r#type: ty,
+            ty,
             text,
             line: self.line,
         }
@@ -329,7 +325,7 @@ impl<'source> Scanner<'source> {
 
     fn make_error<'msg>(&self, msg: &'msg str) -> Token<'msg> {
         Token {
-            r#type: TokenType::Error,
+            ty: TokenType::Error,
             text: msg,
             line: self.line,
         }

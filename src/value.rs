@@ -141,7 +141,7 @@ impl PartialEq for Value {
 impl Value {
     pub(crate) fn is_obj_type(&self, ty: ObjType) -> bool {
         match self {
-            Value::Obj(obj) => unsafe { obj.as_ref() }.r#type == ty,
+            Value::Obj(obj) => unsafe { obj.as_ref() }.ty == ty,
             _ => false,
         }
     }

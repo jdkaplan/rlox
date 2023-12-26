@@ -10,7 +10,7 @@ use crate::value::Value;
 #[derive(Debug)]
 #[repr(C)]
 pub struct Obj {
-    pub(crate) r#type: ObjType,
+    pub(crate) ty: ObjType,
     pub(crate) is_marked: bool,
     pub(crate) next: Option<NonNull<Obj>>,
 }
@@ -18,7 +18,7 @@ pub struct Obj {
 impl fmt::Display for Obj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         unsafe {
-            match self.r#type {
+            match self.ty {
                 ObjType::BoundMethod => {
                     write!(f, "{}", mem::transmute::<&Obj, &ObjBoundMethod>(self))
                 }
@@ -44,14 +44,14 @@ impl fmt::Display for Obj {
 impl Obj {
     fn new(ty: ObjType) -> Self {
         Self {
-            r#type: ty,
+            ty,
             is_marked: false,
             next: None,
         }
     }
 
     pub(crate) fn free(obj: NonNull<Obj>, gc: &mut Gc) {
-        match unsafe { obj.as_ref() }.r#type {
+        match unsafe { obj.as_ref() }.ty {
             ObjType::BoundMethod => gc.free(obj.cast::<ObjBoundMethod>()),
             ObjType::Class => {
                 let mut klass = obj.cast::<ObjClass>();
@@ -238,14 +238,14 @@ pub type NativeFn = fn(argc: usize, argv: NonNull<Value>) -> Value;
 #[repr(C)]
 pub struct ObjNative {
     pub(crate) obj: Obj,
-    pub(crate) r#fn: NativeFn,
+    pub(crate) func: NativeFn,
 }
 
 impl ObjNative {
     pub(crate) fn new(mut gc: Gc, func: NativeFn) -> NonNull<Self> {
         gc.claim(Self {
             obj: Obj::new(ObjType::Native),
-            r#fn: func,
+            func,
         })
     }
 }

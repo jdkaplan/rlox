@@ -253,7 +253,7 @@ impl Gc<'_> {
 
     fn expand_obj(&mut self, obj: NonNull<Obj>) {
         debug_log_gc!("expand obj: {:?}", obj);
-        match unsafe { obj.as_ref().r#type } {
+        match unsafe { obj.as_ref().ty } {
             ObjType::BoundMethod => {
                 let bound = unsafe { (obj.cast::<ObjBoundMethod>()).as_mut() };
                 debug_log_gc!("expand as: {}", bound);

@@ -188,7 +188,7 @@ impl Vm {
             return Err(self.runtime_error("Can only call functions and classes."));
         };
 
-        match unsafe { callee.as_ref() }.r#type {
+        match unsafe { callee.as_ref() }.ty {
             ObjType::BoundMethod => {
                 let callee = callee.cast::<ObjBoundMethod>();
                 let bound = unsafe { callee.as_ref() };
@@ -221,7 +221,7 @@ impl Vm {
             }
             ObjType::Native => {
                 let callee = callee.cast::<ObjNative>();
-                let func = unsafe { callee.as_ref() }.r#fn;
+                let func = unsafe { callee.as_ref() }.func;
                 let argv = self.sp(argc);
                 let res = func(argc, argv);
 

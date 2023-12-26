@@ -188,7 +188,7 @@ impl<'source> Parser<'source> {
 
     pub(crate) fn format_error(token: &Token, msg: &str) -> String {
         let line = token.line;
-        let loc = match token.r#type {
+        let loc = match token.ty {
             TokenType::Eof => Some(String::from("end")),
             TokenType::Error => None, // No location info for synthetic token
             _ => Some(format!("'{}'", token.text())),
@@ -216,7 +216,7 @@ impl<'source> Parser<'source> {
         loop {
             self.current = self.scanner.next_token();
 
-            if self.current.r#type != TokenType::Error {
+            if self.current.ty != TokenType::Error {
                 break;
             }
 
@@ -226,7 +226,7 @@ impl<'source> Parser<'source> {
     }
 
     pub(crate) fn check(&self, ty: TokenType) -> bool {
-        self.current.r#type == ty
+        self.current.ty == ty
     }
 
     pub(crate) fn match_(&mut self, ty: TokenType) -> bool {
@@ -238,7 +238,7 @@ impl<'source> Parser<'source> {
     }
 
     pub(crate) fn consume(&mut self, ty: TokenType, msg: &str) {
-        if self.current.r#type == ty {
+        if self.current.ty == ty {
             self.advance();
             return;
         }
@@ -248,12 +248,12 @@ impl<'source> Parser<'source> {
     pub(crate) fn synchronize(&mut self) {
         self.panicking = false;
 
-        while self.current.r#type != TokenType::Eof {
-            if self.previous.r#type == TokenType::Semicolon {
+        while self.current.ty != TokenType::Eof {
+            if self.previous.ty == TokenType::Semicolon {
                 return;
             }
 
-            match self.current.r#type {
+            match self.current.ty {
                 TokenType::Class
                 | TokenType::Fun
                 | TokenType::Var
@@ -703,7 +703,7 @@ pub(crate) fn or_(parser: &mut Parser, _can_assign: bool) {
 }
 
 pub(crate) fn binary(parser: &mut Parser, _can_assign: bool) {
-    let op = parser.previous.r#type;
+    let op = parser.previous.ty;
     let rule = RULES.get(op);
     parser.parse_precedence(rule.precedence.plus_one());
 
@@ -748,7 +748,7 @@ pub(crate) fn dot(parser: &mut Parser, can_assign: bool) {
 }
 
 pub(crate) fn literal(parser: &mut Parser, _can_assign: bool) {
-    match parser.previous.r#type {
+    match parser.previous.ty {
         TokenType::False => parser.emit_byte(Opcode::False),
         TokenType::True => parser.emit_byte(Opcode::True),
         TokenType::Nil => parser.emit_byte(Opcode::Nil),
@@ -825,7 +825,7 @@ pub(crate) fn this_(parser: &mut Parser, _can_assign: bool) {
 }
 
 pub(crate) fn unary(parser: &mut Parser, _can_assign: bool) {
-    let op = parser.previous.r#type;
+    let op = parser.previous.ty;
 
     parser.parse_precedence(Precedence::Unary);
 
@@ -880,7 +880,7 @@ impl Parser<'_> {
     pub(crate) fn parse_precedence(&mut self, prec: Precedence) {
         self.advance();
 
-        let Some(prefix) = RULES.get(self.previous.r#type).prefix else {
+        let Some(prefix) = RULES.get(self.previous.ty).prefix else {
             self.error("Expect expression.");
             return;
         };
@@ -888,10 +888,10 @@ impl Parser<'_> {
         let can_assign = prec <= Precedence::Assignment;
         prefix(self, can_assign);
 
-        while prec <= RULES.get(self.current.r#type).precedence {
+        while prec <= RULES.get(self.current.ty).precedence {
             self.advance();
 
-            let infix = RULES.get(self.previous.r#type).infix.unwrap();
+            let infix = RULES.get(self.previous.ty).infix.unwrap();
             infix(self, can_assign);
         }
 
