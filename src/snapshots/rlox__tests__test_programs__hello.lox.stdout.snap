@@ -1,0 +1,7 @@
+---
+source: src/lib.rs
+description: "print \"Hello, World!\";\n"
+input_file: test_programs/hello.lox
+---
+Hello, World!
+

@@ -1,3 +1,4 @@
+use std::io;
 use std::mem;
 use std::ptr::{addr_of_mut, NonNull};
 use std::time::Duration;
@@ -56,7 +57,7 @@ pub struct CallFrame {
 }
 
 #[repr(C)]
-pub struct Vm {
+pub struct Vm<'output> {
     pub(crate) frames: Vec<CallFrame>,
     pub(crate) stack: Vec<Value>,
 
@@ -66,17 +67,27 @@ pub struct Vm {
     pub(crate) init_string: NonNull<ObjString>,
 
     pub(crate) heap: Heap,
+
+    pub(crate) opts: VmOptions<'output>,
 }
 
-impl Default for Vm {
+impl Default for Vm<'_> {
     fn default() -> Self {
-        Self::new()
+        Self::new(VmOptions {
+            stdout: Box::new(io::stdout()),
+            stderr: Box::new(io::stderr()),
+        })
     }
 }
 
+pub struct VmOptions<'output> {
+    pub stdout: Box<dyn io::Write + 'output>,
+    pub stderr: Box<dyn io::Write + 'output>,
+}
+
 // Alloc
-impl Vm {
-    pub fn new() -> Self {
+impl<'output> Vm<'output> {
+    pub fn new(opts: VmOptions<'output>) -> Self {
         let mut vm = Self {
             stack: Vec::with_capacity(STACK_MAX),
             frames: Vec::with_capacity(FRAMES_MAX),
@@ -88,6 +99,8 @@ impl Vm {
             init_string: NonNull::dangling(),
 
             heap: Heap::new(),
+
+            opts,
         };
 
         // The boot Gc skips garbage collection. This ensures that vm.init_string is never
@@ -107,17 +120,17 @@ impl Vm {
 }
 
 // Errors
-impl Vm {
+impl Vm<'_> {
     #[must_use]
     pub(crate) fn runtime_error(&mut self, msg: impl AsRef<str>) -> RuntimeError {
         // TODO: Print error message after stack trace.
-        eprintln!("{}", msg.as_ref());
-        self.eprint_stack_trace();
+        writeln!(self.opts.stderr, "{}", msg.as_ref()).unwrap();
+        self.stack_trace();
         self.reset_stack();
         RuntimeError
     }
 
-    pub(crate) fn eprint_stack_trace(&mut self) {
+    pub(crate) fn stack_trace(&mut self) {
         for frame in self.frames.iter().rev() {
             let closure = unsafe { frame.closure.as_ref() };
             let func = unsafe { closure.function.as_ref() };
@@ -125,13 +138,13 @@ impl Vm {
             // The ip has already moved past the instruction that failed, so subtract
             // one extra.
             let line = func.chunk.lines[frame.ip - 1];
-            eprintln!("[line {}] in {}", line, func.name());
+            writeln!(self.opts.stderr, "[line {}] in {}", line, func.name()).unwrap();
         }
     }
 }
 
 // Stack management
-impl Vm {
+impl Vm<'_> {
     pub(crate) fn push(&mut self, value: Value) {
         self.stack.push(value)
     }
@@ -169,7 +182,7 @@ impl Vm {
 }
 
 // Calls
-impl Vm {
+impl Vm<'_> {
     pub(crate) fn call_value(&mut self, callee: Value, argc: usize) -> RuntimeResult<()> {
         let gc = Gc::runtime(self);
 
@@ -344,7 +357,7 @@ impl Vm {
 }
 
 // Upvalues
-impl Vm {
+impl Vm<'_> {
     pub(crate) fn capture_upvalue(&mut self, local: NonNull<Value>) -> NonNull<ObjUpvalue> {
         // Keep the list sorted by pointer value for early exits to searches.
         //
@@ -405,7 +418,7 @@ impl Vm {
 }
 
 // Execution
-impl Vm {
+impl Vm<'_> {
     pub fn interpret(&mut self, source: &str) -> InterpretResult<()> {
         let gc = Gc::runtime(self);
 
@@ -506,9 +519,9 @@ impl Vm {
             #[cfg(feature = "trace_execution")]
             {
                 for value in &self.stack {
-                    print!("[ {} ]", value);
+                    write!(self.opts.stderr, "[ {} ]", value).unwrap();
                 }
-                println!();
+                writeln!(self.opts.stderr).unwrap();
             }
 
             let opcode: Opcode = match read_byte!().try_into() {
@@ -524,7 +537,9 @@ impl Vm {
 
                 // The ip has already moved past the instruction that failed, so subtract
                 // one extra.
-                func.chunk.disassemble_instruction(frame.ip - 1);
+                func.chunk
+                    .disassemble_instruction(frame.ip - 1, &mut self.opts.stderr)
+                    .unwrap();
             }
 
             match opcode {
@@ -705,7 +720,7 @@ impl Vm {
 
                 Opcode::Print => {
                     let v = self.pop();
-                    println!("{}", v);
+                    writeln!(self.opts.stdout, "{}", v).unwrap();
                 }
 
                 Opcode::Jump => {
@@ -817,7 +832,7 @@ impl Vm {
     }
 }
 
-impl Vm {
+impl Vm<'_> {
     pub(crate) fn mark_roots(&mut self) {
         debug_log_gc!("---- mark slots");
         for value in &self.stack {

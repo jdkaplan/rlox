@@ -1,4 +1,6 @@
 use std::fmt;
+use std::io;
+use std::io::Write;
 
 use crate::gc::Gc;
 use crate::object::ObjFunction;
@@ -48,32 +50,40 @@ impl Chunk {
 impl Chunk {
     // This is only used for certain debug features. Prevent it from being considered dead code.
     #[allow(dead_code)]
-    pub(crate) fn disassemble(&self, name: &str) {
-        println!("== {} ==", name);
+    pub(crate) fn disassemble(&self, name: &str) -> io::Result<String> {
+        let mut buf = Vec::new();
+
+        writeln!(&mut buf, "== {} ==", name)?;
 
         for i in 0..self.constants.len() {
-            println!("CONSTANT {:04} = {}", i, self.constants[i]);
+            writeln!(&mut buf, "CONSTANT {:04} = {}", i, self.constants[i])?;
         }
 
         let mut offset = 0;
         while offset < self.code.len() {
-            offset = self.disassemble_instruction(offset);
+            offset = self.disassemble_instruction(offset, &mut buf)?;
         }
+
+        Ok(String::from_utf8(buf).unwrap())
     }
 
-    pub(crate) fn disassemble_instruction(&self, offset: usize) -> usize {
-        print!("{:04} ", offset);
+    pub(crate) fn disassemble_instruction(
+        &self,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
+        write!(f, "{:04} ", offset)?;
 
         if offset > 0 && self.lines[offset] == self.lines[offset - 1] {
-            print!("   | ");
+            write!(f, "   | ")?;
         } else {
-            print!("{:4} ", self.lines[offset]);
+            write!(f, "{:4} ", self.lines[offset])?;
         }
 
         let opcode = self.code[offset];
         let Ok(opcode) = opcode.try_into() else {
-            println!("Unknown opcode: {}", opcode);
-            return offset + 1;
+            writeln!(f, "Unknown opcode: {}", opcode)?;
+            return Ok(offset + 1);
         };
 
         match opcode {
@@ -85,16 +95,16 @@ impl Chunk {
             | Opcode::SetGlobal
             | Opcode::GetProperty
             | Opcode::SetProperty
-            | Opcode::GetSuper) => self.constant_instruction(op, offset),
+            | Opcode::GetSuper) => self.constant_instruction(op, offset, f),
 
             op @ (Opcode::GetLocal
             | Opcode::SetLocal
             | Opcode::GetUpvalue
             | Opcode::SetUpvalue
-            | Opcode::Call) => self.byte_instruction(op, offset),
+            | Opcode::Call) => self.byte_instruction(op, offset, f),
 
-            op @ (Opcode::Jump | Opcode::JumpIfFalse) => self.jump_instruction(op, offset),
-            op @ Opcode::Loop => self.loop_instruction(op, offset),
+            op @ (Opcode::Jump | Opcode::JumpIfFalse) => self.jump_instruction(op, offset, f),
+            op @ Opcode::Loop => self.loop_instruction(op, offset, f),
 
             op @ (Opcode::Nil
             | Opcode::True
@@ -112,67 +122,102 @@ impl Chunk {
             | Opcode::Print
             | Opcode::CloseUpvalue
             | Opcode::Return
-            | Opcode::Inherit) => self.simple_instruction(op, offset),
+            | Opcode::Inherit) => self.simple_instruction(op, offset, f),
 
-            op @ (Opcode::Invoke | Opcode::SuperInvoke) => self.invoke_instruction(op, offset),
+            op @ (Opcode::Invoke | Opcode::SuperInvoke) => self.invoke_instruction(op, offset, f),
 
-            op @ Opcode::Closure => self.closure_instruction(op, offset),
+            op @ Opcode::Closure => self.closure_instruction(op, offset, f),
         }
     }
 
-    fn simple_instruction(&self, op: Opcode, offset: usize) -> usize {
-        println!("{: <16?}", op);
-        offset + 1
+    fn simple_instruction(
+        &self,
+        op: Opcode,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
+        writeln!(f, "{: <16?}", op)?;
+        Ok(offset + 1)
     }
 
-    fn byte_instruction(&self, op: Opcode, offset: usize) -> usize {
+    fn byte_instruction(
+        &self,
+        op: Opcode,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
         let slot = self.code[offset + 1];
-        println!("{: <16?} {:04}", op, slot);
-        offset + 2
+        writeln!(f, "{: <16?} {:04}", op, slot)?;
+        Ok(offset + 2)
     }
 
-    fn constant_instruction(&self, op: Opcode, offset: usize) -> usize {
+    fn constant_instruction(
+        &self,
+        op: Opcode,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
         let constant = self.code[offset + 1];
         let val = self.constants[constant as usize];
-        println!("{: <16?} {:04} '{}'", op, constant, val);
-        offset + 2
+        writeln!(f, "{: <16?} {:04} '{}'", op, constant, val)?;
+        Ok(offset + 2)
     }
 
-    fn jump_instruction(&self, op: Opcode, offset: usize) -> usize {
+    fn jump_instruction(
+        &self,
+        op: Opcode,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
         let hi: u16 = self.code[offset + 1].into();
         let lo: u16 = self.code[offset + 2].into();
         let target = offset + 3 + ((hi << 8 | lo) as usize);
 
-        println!("{: <16?} {:04} -> {}", op, offset, target);
-        offset + 3
+        writeln!(f, "{: <16?} {:04} -> {}", op, offset, target)?;
+        Ok(offset + 3)
     }
 
-    fn loop_instruction(&self, op: Opcode, offset: usize) -> usize {
+    fn loop_instruction(
+        &self,
+        op: Opcode,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
         let hi: u16 = self.code[offset + 1].into();
         let lo: u16 = self.code[offset + 2].into();
         let target = offset + 3 - ((hi << 8 | lo) as usize);
 
-        println!("{: <16?} {:04} -> {}", op, offset, target);
-        offset + 3
+        writeln!(f, "{: <16?} {:04} -> {}", op, offset, target)?;
+        Ok(offset + 3)
     }
 
-    fn invoke_instruction(&self, op: Opcode, offset: usize) -> usize {
+    fn invoke_instruction(
+        &self,
+        op: Opcode,
+        offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
         let constant = self.code[offset + 1];
         let argc = self.code[offset + 2];
         let val = self.constants[constant as usize];
 
-        println!("{: <16?} ({:04} args) {:04} {}", op, argc, constant, val);
-        offset + 3
+        writeln!(f, "{: <16?} ({:04} args) {:04} {}", op, argc, constant, val)?;
+        Ok(offset + 3)
     }
 
-    fn closure_instruction(&self, op: Opcode, mut offset: usize) -> usize {
+    fn closure_instruction(
+        &self,
+        op: Opcode,
+        mut offset: usize,
+        f: &mut dyn io::Write,
+    ) -> io::Result<usize> {
         offset += 1;
 
         let constant = self.code[offset];
         offset += 1;
 
         let val = self.constants[constant as usize];
-        println!("{: <16?} {:04} {}", op, constant, val);
+        writeln!(f, "{: <16?} {:04} {}", op, constant, val)?;
 
         let function = unsafe { self.constants[constant as usize].as_obj::<ObjFunction>() };
         let upvalue_count = unsafe { function.as_ref() }.upvalue_count;
@@ -184,15 +229,16 @@ impl Chunk {
             offset += 1;
 
             let ty = if is_local == 0 { "upvalue " } else { "local" };
-            println!(
+            writeln!(
+                f,
                 "{:04}      |                     {} {}",
                 offset - 2,
                 ty,
                 index
-            );
+            )?;
         }
 
-        offset
+        Ok(offset)
     }
 }
 

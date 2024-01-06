@@ -11,8 +11,8 @@ use crate::value::Value;
 
 macro_rules! heap_alloc {
     ($gc:expr, $obj:expr) => {{
-        crate::gc::Gc::<'_>::_run_collection(&mut $gc);
-        crate::gc::Gc::<'_>::_claim(&mut $gc, Box::new($obj))
+        crate::gc::Gc::<'_, '_>::_run_collection(&mut $gc);
+        crate::gc::Gc::<'_, '_>::_claim(&mut $gc, Box::new($obj))
     }};
 }
 

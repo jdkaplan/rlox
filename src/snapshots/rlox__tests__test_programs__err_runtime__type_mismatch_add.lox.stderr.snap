@@ -1,0 +1,8 @@
+---
+source: src/lib.rs
+description: "1 + \"foo\";\n"
+input_file: test_programs/err_runtime/type_mismatch_add.lox
+---
+Operands must be two numbers or two strings.
+[line 1] in script
+

@@ -19,7 +19,7 @@ fn main() {
 }
 
 fn repl() {
-    let mut vm = Vm::new();
+    let mut vm = Vm::default();
 
     // TODO: readline or better
     let mut line = String::new();
@@ -44,7 +44,7 @@ fn repl() {
 }
 
 fn run_file(path: &str) {
-    let mut vm = Vm::new();
+    let mut vm = Vm::default();
 
     let Ok(source) = std::fs::read_to_string(path) else {
         eprintln!("error: could not read file at {:?}", path);

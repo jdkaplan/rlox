@@ -20,7 +20,7 @@ pub type CompileResult<T> = Result<T, CompileError>;
 pub struct CompileError;
 
 #[repr(C)]
-pub struct Parser<'source> {
+pub struct Parser<'source, 'output> {
     current: Token<'source>,
     previous: Token<'source>,
 
@@ -31,7 +31,7 @@ pub struct Parser<'source> {
     had_error: bool,
     panicking: bool,
 
-    vm: &'source mut Vm,
+    vm: &'source mut Vm<'output>,
 }
 
 #[repr(C)]
@@ -119,8 +119,12 @@ pub(crate) fn compile(vm: &mut Vm, source: &str) -> CompileResult<NonNull<ObjFun
     parser.finish()
 }
 
-impl<'source> Parser<'source> {
-    pub(crate) fn new(scanner: Scanner<'source>, vm: &'source mut Vm, mode: FunctionMode) -> Self {
+impl<'source, 'output> Parser<'source, 'output> {
+    pub(crate) fn new(
+        scanner: Scanner<'source>,
+        vm: &'source mut Vm<'output>,
+        mode: FunctionMode,
+    ) -> Self {
         let gc = Gc::boot(vm);
         let function = ObjFunction::new(gc);
 
@@ -171,7 +175,8 @@ impl<'source> Parser<'source> {
 
         #[cfg(feature = "print_code")]
         if !self.had_error {
-            self.current_chunk().disassemble(&function.name());
+            let code = self.current_chunk().disassemble(&function.name()).unwrap();
+            write!(self.vm.opts.stderr, "{}", code).unwrap();
         }
 
         // If this was the top-level compiler, there is no enclosing one, and the Parser is going
@@ -190,7 +195,7 @@ impl<'source> Parser<'source> {
         }
         self.panicking = true;
 
-        eprintln!("{}", msg);
+        writeln!(self.vm.opts.stderr, "{}", msg).unwrap();
         self.had_error = true;
     }
 
@@ -277,7 +282,7 @@ impl<'source> Parser<'source> {
     }
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     pub(crate) fn current_chunk(&mut self) -> &mut Chunk {
         let compiler = unsafe { self.compiler.as_mut() };
         let function = unsafe { compiler.function.as_mut() };
@@ -358,7 +363,7 @@ impl Parser<'_> {
     }
 }
 
-impl<'source> Parser<'source> {
+impl<'source> Parser<'source, '_> {
     pub(crate) fn scope_begin(&mut self) {
         let compiler = unsafe { self.compiler.as_mut() };
         compiler.scope_depth += 1;
@@ -429,7 +434,7 @@ impl Compiler<'_> {
     }
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     pub(crate) fn identifier_constant(&mut self, name: &Token) -> u8 {
         let gc = Gc::comptime(self.compiler, self.vm);
 
@@ -622,7 +627,7 @@ impl Precedence {
     }
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     pub(crate) fn argument_list(&mut self) -> u8 {
         let mut argc: u32 = 0;
         if !self.check(TokenType::RightParen) {
@@ -844,7 +849,7 @@ pub(crate) fn unary(parser: &mut Parser, _can_assign: bool) {
     }
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     pub(crate) fn declaration(&mut self) {
         if self.match_(TokenType::Class) {
             self.decl_class();

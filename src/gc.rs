@@ -8,15 +8,15 @@ const GC_GROWTH_FACTOR: usize = 2;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub struct Gc<'compiler> {
-    pub(crate) vm: NonNull<Vm>,
+pub struct Gc<'compiler, 'output> {
+    pub(crate) vm: NonNull<Vm<'output>>,
     pub(crate) compiler: Option<NonNull<Compiler<'compiler>>>,
 
     can_gc: bool,
 }
 
-impl<'compiler> Gc<'compiler> {
-    pub(crate) fn comptime(compiler: NonNull<Compiler<'compiler>>, vm: &mut Vm) -> Self {
+impl<'compiler, 'output: 'compiler> Gc<'compiler, 'output> {
+    pub(crate) fn comptime(compiler: NonNull<Compiler<'compiler>>, vm: &mut Vm<'output>) -> Self {
         Self {
             compiler: Some(compiler),
             vm: NonNull::from(vm),
@@ -24,7 +24,7 @@ impl<'compiler> Gc<'compiler> {
         }
     }
 
-    pub(crate) fn runtime(vm: &mut Vm) -> Self {
+    pub(crate) fn runtime(vm: &mut Vm<'output>) -> Self {
         Self {
             compiler: None,
             vm: NonNull::from(vm),
@@ -32,7 +32,7 @@ impl<'compiler> Gc<'compiler> {
         }
     }
 
-    pub(crate) fn boot(vm: &mut Vm) -> Self {
+    pub(crate) fn boot(vm: &mut Vm<'output>) -> Self {
         Self {
             compiler: None,
             vm: NonNull::from(vm),
@@ -41,7 +41,7 @@ impl<'compiler> Gc<'compiler> {
     }
 }
 
-impl Gc<'_> {
+impl Gc<'_, '_> {
     pub(crate) fn _run_collection(&mut self) {
         if !self.can_gc {
             return;
@@ -67,7 +67,7 @@ impl Gc<'_> {
     }
 }
 
-impl Gc<'_> {
+impl Gc<'_, '_> {
     pub(crate) fn collect_garbage(&mut self) {
         self.mark_roots();
 
@@ -94,7 +94,7 @@ impl Gc<'_> {
 }
 
 // Mark
-impl Gc<'_> {
+impl Gc<'_, '_> {
     fn mark_roots(&mut self) {
         let vm = unsafe { self.vm.as_mut() };
 
