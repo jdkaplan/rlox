@@ -1,0 +1,13 @@
+---
+source: src/lib.rs
+description: "var s = \"\";\nprint s == \"\";\n\nprint s; s = s + \"abcd\";\nprint s; s = s + \"5678\";\nprint s; s = s + \"efgh\";\nprint s; s = s + \"9012\";\nprint s;\n\nprint s == \"abcd5678efgh9012\";\n"
+input_file: test_programs/strings.lox
+---
+true
+
+abcd
+abcd5678
+abcd5678efgh
+abcd5678efgh9012
+true
+

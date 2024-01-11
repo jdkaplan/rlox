@@ -1,0 +1,10 @@
+var s = "";
+print s == "";
+
+print s; s = s + "abcd";
+print s; s = s + "5678";
+print s; s = s + "efgh";
+print s; s = s + "9012";
+print s;
+
+print s == "abcd5678efgh9012";

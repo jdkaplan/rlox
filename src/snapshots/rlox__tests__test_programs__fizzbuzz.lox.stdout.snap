@@ -1,0 +1,36 @@
+---
+source: src/lib.rs
+description: "fun div(n, m) {\n    // TODO: modulo operator\n    while (n > 0 and n >= m) {\n        n = n - m;\n    }\n    return n == 0;\n}\n\nfor (var i = 1; i <= 30; i = i + 1) {\n    if (div(i, 15)) print \"fizzbuzz\";\n    else if (div(i,  3)) print \"fizz\";\n    else if (div(i,  5)) print \"buzz\";\n    else print i;\n}\n"
+input_file: test_programs/fizzbuzz.lox
+---
+1
+2
+fizz
+4
+buzz
+fizz
+7
+8
+fizz
+buzz
+11
+fizz
+13
+14
+fizzbuzz
+16
+17
+fizz
+19
+buzz
+fizz
+22
+23
+fizz
+buzz
+26
+fizz
+28
+29
+fizzbuzz
+

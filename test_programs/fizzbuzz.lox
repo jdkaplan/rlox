@@ -1,0 +1,14 @@
+fun div(n, m) {
+    // TODO: modulo operator
+    while (n > 0 and n >= m) {
+        n = n - m;
+    }
+    return n == 0;
+}
+
+for (var i = 1; i <= 30; i = i + 1) {
+    if (div(i, 15)) print "fizzbuzz";
+    else if (div(i,  3)) print "fizz";
+    else if (div(i,  5)) print "buzz";
+    else print i;
+}

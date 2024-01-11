@@ -1,0 +1,13 @@
+fun even(n) {
+    if (n == 0) return true;
+    return odd(n - 1);
+}
+
+fun odd(n) {
+    if (n == 0) return false;
+    return even(n - 1);
+}
+
+for (var i = 0; i < 10; i = i + 1) {
+    print even(i);
+}

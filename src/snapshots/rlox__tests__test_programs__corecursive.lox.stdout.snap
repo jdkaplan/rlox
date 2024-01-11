@@ -1,0 +1,16 @@
+---
+source: src/lib.rs
+description: "fun even(n) {\n    if (n == 0) return true;\n    return odd(n - 1);\n}\n\nfun odd(n) {\n    if (n == 0) return false;\n    return even(n - 1);\n}\n\nfor (var i = 0; i < 10; i = i + 1) {\n    print even(i);\n}\n"
+input_file: test_programs/corecursive.lox
+---
+true
+false
+true
+false
+true
+false
+true
+false
+true
+false
+

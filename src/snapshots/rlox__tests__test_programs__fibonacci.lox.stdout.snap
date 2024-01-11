@@ -1,0 +1,16 @@
+---
+source: src/lib.rs
+description: "fun fibonacci(n) {\n    if (n <= 1) return 1;\n    return fibonacci(n - 1) + fibonacci(n - 2);\n}\n\nfor (var i = 0; i < 10; i = i + 1) {\n    print fibonacci(i);\n}\n"
+input_file: test_programs/fibonacci.lox
+---
+1
+1
+2
+3
+5
+8
+13
+21
+34
+55
+
