@@ -103,7 +103,9 @@ impl Chunk {
             | Opcode::SetUpvalue
             | Opcode::Call) => self.byte_instruction(op, offset, f),
 
-            op @ (Opcode::Jump | Opcode::JumpIfFalse) => self.jump_instruction(op, offset, f),
+            op @ (Opcode::Jump | Opcode::JumpIfFalse | Opcode::JumpIfTrue) => {
+                self.jump_instruction(op, offset, f)
+            }
             op @ Opcode::Loop => self.loop_instruction(op, offset, f),
 
             op @ (Opcode::Nil
@@ -287,6 +289,7 @@ pub enum Opcode {
 
     Jump,
     JumpIfFalse,
+    JumpIfTrue,
     Loop,
 
     Call,

@@ -743,6 +743,12 @@ impl Vm<'_> {
                         unsafe { frame.as_mut().ip += offset as usize };
                     }
                 }
+                Opcode::JumpIfTrue => {
+                    let offset = read_short!();
+                    if self.peek(0).is_truthy() {
+                        unsafe { frame.as_mut().ip += offset as usize };
+                    }
+                }
                 Opcode::Loop => {
                     let offset = read_short!();
                     unsafe { frame.as_mut().ip -= offset as usize };

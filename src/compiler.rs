@@ -695,16 +695,10 @@ pub(crate) fn and_(parser: &mut Parser, _can_assign: bool) {
 }
 
 pub(crate) fn or_(parser: &mut Parser, _can_assign: bool) {
-    // TODO: Implement symmetrically with and_.
-
     // [ a ]
 
-    // jump_false_peek else
-    let else_jump = parser.emit_jump(Opcode::JumpIfFalse);
-    // jump end
-    let end_jump = parser.emit_jump(Opcode::Jump);
-    // else:
-    parser.patch_jump(else_jump);
+    // jump_true_peek end
+    let end_jump = parser.emit_jump(Opcode::JumpIfTrue);
     // pop a
     parser.emit_byte(Opcode::Pop);
     // <b>
