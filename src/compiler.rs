@@ -727,12 +727,12 @@ pub(crate) fn binary(parser: &mut Parser, _can_assign: bool) {
         TokenType::Slash => parser.emit_byte(Opcode::Div),
         TokenType::Percent => parser.emit_byte(Opcode::Rem),
 
-        TokenType::BangEqual => parser.emit_bytes(Opcode::Equal, Opcode::Not),
-        TokenType::EqualEqual => parser.emit_byte(Opcode::Equal),
-        TokenType::Greater => parser.emit_byte(Opcode::Greater),
-        TokenType::GreaterEqual => parser.emit_bytes(Opcode::Less, Opcode::Not),
-        TokenType::Less => parser.emit_byte(Opcode::Less),
-        TokenType::LessEqual => parser.emit_bytes(Opcode::Greater, Opcode::Not),
+        TokenType::BangEqual => parser.emit_byte(Opcode::Ne),
+        TokenType::EqualEqual => parser.emit_byte(Opcode::Eq),
+        TokenType::Greater => parser.emit_byte(Opcode::Gt),
+        TokenType::GreaterEqual => parser.emit_byte(Opcode::Ge),
+        TokenType::Less => parser.emit_byte(Opcode::Lt),
+        TokenType::LessEqual => parser.emit_byte(Opcode::Le),
 
         _ => unreachable!(),
     }

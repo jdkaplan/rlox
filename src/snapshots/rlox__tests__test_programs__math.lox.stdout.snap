@@ -1,6 +1,6 @@
 ---
 source: src/lib.rs
-description: "print 0.1 + 0.2;\n\nvar a1 = 1 + 2 * 3 - 4 / 5 * 6 + 7 - 8;\nvar a2 = (((1 + (2 * 3)) - ((4 / 5) * 6)) + 7) - 8;\nprint a1;\nprint a2;\nprint a1 == a2;\n\nvar b = (1 + 2) * (3 - 4 / 5) * 6 + 7 + (-8);\nprint b;\nprint b == 38.6;\n\nvar pos_inf =  1/0;\nvar neg_inf = -1/0;\nvar nan =      0/0;\n\nprint pos_inf;\nprint neg_inf;\nprint nan;\nprint nan == nan;\n"
+description: "print 0.1 + 0.2;\n\nvar a1 = 1 + 2 * 3 - 4 / 5 * 6 + 7 - 8;\nvar a2 = (((1 + (2 * 3)) - ((4 / 5) * 6)) + 7) - 8;\nprint a1;\nprint a2;\nprint a1 == a2;\n\nvar b = (1 + 2) * (3 - 4 / 5) * 6 + 7 + (-8);\nprint b;\nprint b == 38.6;\n\nvar pos_inf =  1/0;\nvar neg_inf = -1/0;\nvar nan =      0/0;\n\nprint pos_inf;\nprint neg_inf;\nprint nan;\n\nprint \"NaN compares false with everything...\";\nprint nan < nan;\nprint nan > nan;\nprint nan <= nan;\nprint nan >= nan;\nprint nan < 0;\nprint nan > 0;\nprint nan <= 0;\nprint nan >= 0;\n\nprint \"... and is not-equal to anything\";\nprint nan == nan;\nprint nan == 0;\nprint nan != nan;\nprint nan != 0;\n"
 input_file: test_programs/math.lox
 ---
 0.30000000000000004
@@ -12,5 +12,18 @@ true
 inf
 -inf
 NaN
+NaN compares false with everything...
 false
+false
+false
+false
+false
+false
+false
+false
+... and is not-equal to anything
+false
+false
+true
+true
 

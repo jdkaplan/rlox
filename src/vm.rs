@@ -663,13 +663,20 @@ impl Vm<'_> {
                     self.bind_method(superclass, name)?;
                 }
 
-                Opcode::Equal => {
+                Opcode::Eq => {
                     let b = self.pop();
                     let a = self.pop();
                     self.push(Value::bool(a == b));
                 }
-                Opcode::Greater => compare_op!(PartialOrd::gt)?,
-                Opcode::Less => compare_op!(PartialOrd::lt)?,
+                Opcode::Ne => {
+                    let b = self.pop();
+                    let a = self.pop();
+                    self.push(Value::bool(a != b));
+                }
+                Opcode::Gt => compare_op!(PartialOrd::gt)?,
+                Opcode::Ge => compare_op!(PartialOrd::ge)?,
+                Opcode::Lt => compare_op!(PartialOrd::lt)?,
+                Opcode::Le => compare_op!(PartialOrd::le)?,
 
                 Opcode::Not => {
                     let a = self.pop();

@@ -17,4 +17,19 @@ var nan =      0/0;
 print pos_inf;
 print neg_inf;
 print nan;
+
+print "NaN compares false with everything...";
+print nan < nan;
+print nan > nan;
+print nan <= nan;
+print nan >= nan;
+print nan < 0;
+print nan > 0;
+print nan <= 0;
+print nan >= 0;
+
+print "... and is not-equal to anything";
 print nan == nan;
+print nan == 0;
+print nan != nan;
+print nan != 0;

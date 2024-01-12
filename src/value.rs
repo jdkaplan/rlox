@@ -131,7 +131,7 @@ impl PartialEq for Value {
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::Number(_), _) => false,
 
-            // The VM interns all strings, so pointer equality works for every object.
+            // The VM interns all strings, so pointer identity works for every object.
             (Value::Obj(a), Value::Obj(b)) => a == b,
             (Value::Obj(_), _) => false,
         }

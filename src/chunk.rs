@@ -110,9 +110,12 @@ impl Chunk {
             | Opcode::True
             | Opcode::False
             | Opcode::Pop
-            | Opcode::Equal
-            | Opcode::Greater
-            | Opcode::Less
+            | Opcode::Eq
+            | Opcode::Ne
+            | Opcode::Gt
+            | Opcode::Ge
+            | Opcode::Lt
+            | Opcode::Le
             | Opcode::Not
             | Opcode::Neg
             | Opcode::Add
@@ -266,10 +269,13 @@ pub enum Opcode {
     GetSuper,
 
     Not,
-    Equal,
-    Greater,
-    Less,
-    // TODO: The other three _are_ needed to handle NaN properly.
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
+
     Neg,
     Add,
     Sub,
@@ -329,9 +335,13 @@ impl TryFrom<u8> for Opcode {
             v if v == Opcode::GetSuper as u8 => Opcode::GetSuper,
 
             v if v == Opcode::Not as u8 => Opcode::Not,
-            v if v == Opcode::Equal as u8 => Opcode::Equal,
-            v if v == Opcode::Greater as u8 => Opcode::Greater,
-            v if v == Opcode::Less as u8 => Opcode::Less,
+
+            v if v == Opcode::Eq as u8 => Opcode::Eq,
+            v if v == Opcode::Ne as u8 => Opcode::Ne,
+            v if v == Opcode::Gt as u8 => Opcode::Gt,
+            v if v == Opcode::Ge as u8 => Opcode::Ge,
+            v if v == Opcode::Lt as u8 => Opcode::Lt,
+            v if v == Opcode::Le as u8 => Opcode::Le,
 
             v if v == Opcode::Neg as u8 => Opcode::Neg,
             v if v == Opcode::Add as u8 => Opcode::Add,
