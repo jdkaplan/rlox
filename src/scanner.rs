@@ -37,6 +37,7 @@ pub enum TokenType {
     Semicolon,
     Slash,
     Star,
+    Percent,
 
     // One- or two-character tokens
     Bang,
@@ -163,6 +164,7 @@ impl<'source> Scanner<'source> {
             '+' => self.make_token(TokenType::Plus),
             '/' => self.make_token(TokenType::Slash),
             '*' => self.make_token(TokenType::Star),
+            '%' => self.make_token(TokenType::Percent),
 
             // One or two characters, 1 lookahead
             '!' => {

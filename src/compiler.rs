@@ -600,7 +600,7 @@ pub(crate) enum Precedence {
     Equality,   // == !=
     Comparison, // < > <= >=
     Term,       // + -
-    Factor,     // * /
+    Factor,     // * / %
     Unary,      // ! -
     Call,       // . ()
     Primary,
@@ -725,6 +725,7 @@ pub(crate) fn binary(parser: &mut Parser, _can_assign: bool) {
         TokenType::Minus => parser.emit_byte(Opcode::Sub),
         TokenType::Star => parser.emit_byte(Opcode::Mul),
         TokenType::Slash => parser.emit_byte(Opcode::Div),
+        TokenType::Percent => parser.emit_byte(Opcode::Rem),
 
         TokenType::BangEqual => parser.emit_bytes(Opcode::Equal, Opcode::Not),
         TokenType::EqualEqual => parser.emit_byte(Opcode::Equal),
@@ -1246,6 +1247,7 @@ pub(crate) fn make_rules() -> Rules {
         rule!(TokenType::Semicolon,    None,           None,         Precedence::None      );
         rule!(TokenType::Slash,        None,           Some(binary), Precedence::Factor    );
         rule!(TokenType::Star,         None,           Some(binary), Precedence::Factor    );
+        rule!(TokenType::Percent,      None,           Some(binary), Precedence::Factor    );
         rule!(TokenType::Bang,         Some(unary),    None,         Precedence::None      );
         rule!(TokenType::BangEqual,    None,           Some(binary), Precedence::Equality  );
         rule!(TokenType::Equal,        None,           None,         Precedence::None      );

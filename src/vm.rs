@@ -717,6 +717,9 @@ impl Vm<'_> {
                 Opcode::Div => {
                     binary_op!(std::ops::Div::<f64>::div)?;
                 }
+                Opcode::Rem => {
+                    binary_op!(std::ops::Rem::<f64>::rem)?;
+                }
 
                 Opcode::Print => {
                     let v = self.pop();

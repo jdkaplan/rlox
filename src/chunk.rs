@@ -119,6 +119,7 @@ impl Chunk {
             | Opcode::Sub
             | Opcode::Mul
             | Opcode::Div
+            | Opcode::Rem
             | Opcode::Print
             | Opcode::CloseUpvalue
             | Opcode::Return
@@ -274,6 +275,7 @@ pub enum Opcode {
     Sub,
     Mul,
     Div,
+    Rem,
 
     Print,
 
@@ -336,6 +338,7 @@ impl TryFrom<u8> for Opcode {
             v if v == Opcode::Sub as u8 => Opcode::Sub,
             v if v == Opcode::Mul as u8 => Opcode::Mul,
             v if v == Opcode::Div as u8 => Opcode::Div,
+            v if v == Opcode::Rem as u8 => Opcode::Rem,
 
             v if v == Opcode::Print as u8 => Opcode::Print,
 
