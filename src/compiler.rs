@@ -1015,28 +1015,29 @@ impl Parser<'_, '_> {
         self.consume(TokenType::RightParen, "Expect ')' after condition.");
 
         // jump_false_peek else
-        let then_jump = self.emit_jump(Opcode::JumpIfFalse);
+        let else_jump = self.emit_jump(Opcode::JumpIfFalse);
         // pop cond
         self.emit_byte(Opcode::Pop);
         // <conseq>
         self.statement();
 
-        // TODO: Avoid the double-jump if no else branch.
-
-        // jump out
-        let else_jump = self.emit_jump(Opcode::Jump);
-
-        // else:
-        self.patch_jump(then_jump);
-        // pop cond
-        self.emit_byte(Opcode::Pop);
-
-        // <alt>
         if self.match_(TokenType::Else) {
+            // jump out
+            let out_jump = self.emit_jump(Opcode::Jump);
+
+            // else:
+            self.patch_jump(else_jump);
+            // pop cond
+            self.emit_byte(Opcode::Pop);
+
+            // <alt>
             self.statement();
+            // out:
+            self.patch_jump(out_jump);
+        } else {
+            // else:
+            self.patch_jump(else_jump);
         }
-        // out:
-        self.patch_jump(else_jump);
     }
 
     pub(crate) fn stmt_for(&mut self) {
