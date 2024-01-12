@@ -246,7 +246,7 @@ impl Chunk {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, strum::FromRepr)]
 #[repr(C)]
 pub enum Opcode {
     Constant,
@@ -314,62 +314,7 @@ impl From<Opcode> for u8 {
 impl TryFrom<u8> for Opcode {
     type Error = InvalidOpcode;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        let v = match value {
-            v if v == Opcode::Constant as u8 => Opcode::Constant,
-            v if v == Opcode::Nil as u8 => Opcode::Nil,
-            v if v == Opcode::True as u8 => Opcode::True,
-            v if v == Opcode::False as u8 => Opcode::False,
-
-            v if v == Opcode::Pop as u8 => Opcode::Pop,
-
-            v if v == Opcode::GetLocal as u8 => Opcode::GetLocal,
-            v if v == Opcode::SetLocal as u8 => Opcode::SetLocal,
-            v if v == Opcode::DefineGlobal as u8 => Opcode::DefineGlobal,
-            v if v == Opcode::GetGlobal as u8 => Opcode::GetGlobal,
-            v if v == Opcode::SetGlobal as u8 => Opcode::SetGlobal,
-            v if v == Opcode::GetUpvalue as u8 => Opcode::GetUpvalue,
-            v if v == Opcode::SetUpvalue as u8 => Opcode::SetUpvalue,
-            v if v == Opcode::GetProperty as u8 => Opcode::GetProperty,
-            v if v == Opcode::SetProperty as u8 => Opcode::SetProperty,
-            v if v == Opcode::GetSuper as u8 => Opcode::GetSuper,
-
-            v if v == Opcode::Not as u8 => Opcode::Not,
-
-            v if v == Opcode::Eq as u8 => Opcode::Eq,
-            v if v == Opcode::Ne as u8 => Opcode::Ne,
-            v if v == Opcode::Gt as u8 => Opcode::Gt,
-            v if v == Opcode::Ge as u8 => Opcode::Ge,
-            v if v == Opcode::Lt as u8 => Opcode::Lt,
-            v if v == Opcode::Le as u8 => Opcode::Le,
-
-            v if v == Opcode::Neg as u8 => Opcode::Neg,
-            v if v == Opcode::Add as u8 => Opcode::Add,
-            v if v == Opcode::Sub as u8 => Opcode::Sub,
-            v if v == Opcode::Mul as u8 => Opcode::Mul,
-            v if v == Opcode::Div as u8 => Opcode::Div,
-            v if v == Opcode::Rem as u8 => Opcode::Rem,
-
-            v if v == Opcode::Print as u8 => Opcode::Print,
-
-            v if v == Opcode::Jump as u8 => Opcode::Jump,
-            v if v == Opcode::JumpIfFalse as u8 => Opcode::JumpIfFalse,
-            v if v == Opcode::Loop as u8 => Opcode::Loop,
-
-            v if v == Opcode::Call as u8 => Opcode::Call,
-            v if v == Opcode::Invoke as u8 => Opcode::Invoke,
-            v if v == Opcode::SuperInvoke as u8 => Opcode::SuperInvoke,
-            v if v == Opcode::Closure as u8 => Opcode::Closure,
-            v if v == Opcode::CloseUpvalue as u8 => Opcode::CloseUpvalue,
-            v if v == Opcode::Return as u8 => Opcode::Return,
-
-            v if v == Opcode::Class as u8 => Opcode::Class,
-            v if v == Opcode::Inherit as u8 => Opcode::Inherit,
-            v if v == Opcode::Method as u8 => Opcode::Method,
-
-            opcode => return Err(InvalidOpcode { opcode }),
-        };
-
-        Ok(v)
+    fn try_from(opcode: u8) -> Result<Self, Self::Error> {
+        Self::from_repr(opcode as usize).ok_or(InvalidOpcode { opcode })
     }
 }
