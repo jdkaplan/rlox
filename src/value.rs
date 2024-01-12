@@ -3,20 +3,13 @@ use std::ptr::NonNull;
 
 use crate::object::{Obj, ObjType};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, strum::EnumDiscriminants)]
+#[strum_discriminants(name(ValueType))]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
     Obj(NonNull<Obj>),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ValueType {
-    Bool,
-    Nil,
-    Number,
-    Obj,
 }
 
 impl Default for Value {
